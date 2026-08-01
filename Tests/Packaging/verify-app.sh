@@ -60,7 +60,7 @@ verify_bundle "$app_path"
 test -f "$zip_path"
 test ! -L "$zip_path"
 unzip -tq "$zip_path"
-if unzip -Z1 "$zip_path" | grep -Eq '(^|/)\._|^__MACOSX/'; then
+if unzip -Z1 "$zip_path" | grep -E '(^|/)\._|^__MACOSX/' >/dev/null; then
     printf 'archive contains unexpected AppleDouble metadata\n' >&2
     exit 1
 fi

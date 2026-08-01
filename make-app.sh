@@ -486,7 +486,7 @@ codesign --verify --deep --strict --verbose=2 "$staged_app"
 
 ditto -c -k --norsrc --keepParent "$staged_app" "$staged_zip"
 unzip -tq "$staged_zip"
-if unzip -Z1 "$staged_zip" | grep -Eq '(^|/)\._|^__MACOSX/'; then
+if unzip -Z1 "$staged_zip" | grep -E '(^|/)\._|^__MACOSX/' >/dev/null; then
     printf 'ZIP 包含意外 AppleDouble 元数据\n' >&2
     exit 1
 fi

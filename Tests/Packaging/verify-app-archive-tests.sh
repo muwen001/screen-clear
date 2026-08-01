@@ -24,6 +24,33 @@ assert_rejected() {
     fi
 }
 
+appledouble_root="$test_root/appledouble"
+appledouble_zip="$test_root/appledouble.zip"
+appledouble_filler="$appledouble_root/ScreenClear.app/Contents/appledouble-fixture"
+mkdir -p "$appledouble_root" "$appledouble_filler"
+ditto "$source_app" "$appledouble_root/ScreenClear.app"
+printf 'unexpected metadata\n' > "$appledouble_root/ScreenClear.app/._metadata"
+for filler_index in $(/usr/bin/jot -w '%05d' 4096 1); do
+    : > "$appledouble_filler/entry-$filler_index"
+done
+(
+    cd "$appledouble_root"
+    /usr/bin/zip -q "$appledouble_zip" ScreenClear.app/._metadata
+    find ScreenClear.app -mindepth 1 ! -path ScreenClear.app/._metadata -print |
+        /usr/bin/zip -q "$appledouble_zip" -@
+)
+old_pipeline_status=0
+unzip -Z1 "$appledouble_zip" | grep -Eq '(^|/)\._|^__MACOSX/' ||
+    old_pipeline_status=$?
+test "$old_pipeline_status" -eq 141
+assert_rejected "$appledouble_zip"
+if ! grep -Fxq 'archive contains unexpected AppleDouble metadata' \
+    "$test_root/verifier.out"; then
+    printf 'verifier did not report the AppleDouble-specific rejection\n' >&2
+    sed -n '1,40p' "$test_root/verifier.out" >&2
+    exit 1
+fi
+
 extra_root="$test_root/extra"
 mkdir -p "$extra_root"
 ditto "$source_app" "$extra_root/ScreenClear.app"
