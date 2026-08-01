@@ -39,6 +39,59 @@ test ! -L "$output_root/MenuBarIcon.pdf"
 
 /usr/bin/xcrun swift "$generator" "$output_root"
 
+small_icon="$output_root/ScreenClear.iconset/icon_16x16.png"
+/usr/bin/xcrun swift - "$small_icon" <<'SWIFT'
+import AppKit
+import Foundation
+
+guard CommandLine.arguments.count == 2,
+      let data = try? Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])),
+      let image = NSBitmapImageRep(data: data),
+      image.pixelsWide == 16,
+      image.pixelsHigh == 16 else {
+    fputs("cannot decode 16px icon\n", stderr)
+    exit(1)
+}
+
+func countPixels(x: ClosedRange<Int>, y: ClosedRange<Int>, matching: (NSColor) -> Bool) -> Int {
+    var count = 0
+    for row in y {
+        for column in x {
+            if let pixel = image.colorAt(x: column, y: row), matching(pixel) {
+                count += 1
+            }
+        }
+    }
+    return count
+}
+
+func fail(_ message: String) -> Never {
+    fputs("16px icon visibility failure: \(message)\n", stderr)
+    exit(1)
+}
+
+let white: (NSColor) -> Bool = {
+    min($0.redComponent, min($0.greenComponent, $0.blueComponent)) >= 0.90
+}
+let cyan: (NSColor) -> Bool = {
+    $0.redComponent >= 0.55 && $0.greenComponent >= 0.75 && $0.blueComponent >= 0.85
+}
+
+// These hand-picked decoded-PNG regions use y=0 at the image top and cover the visible monitor, stand, and sparkle.
+guard countPixels(x: 2...3, y: 6...10, matching: white) >= 5,
+      countPixels(x: 4...9, y: 10...11, matching: white) >= 5,
+      countPixels(x: 10...11, y: 6...9, matching: white) >= 4 else {
+    fail("display boundary")
+}
+guard countPixels(x: 6...7, y: 11...12, matching: white) >= 2,
+      countPixels(x: 4...9, y: 12...13, matching: white) >= 4 else {
+    fail("display stand")
+}
+guard countPixels(x: 11...15, y: 1...5, matching: cyan) >= 3 else {
+    fail("upper-right sparkle")
+}
+SWIFT
+
 while IFS=: read -r name width height; do
     image="$output_root/ScreenClear.iconset/$name"
     test -f "$image"

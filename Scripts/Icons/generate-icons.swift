@@ -65,6 +65,67 @@ func sparklePath(center: CGPoint, outer: CGFloat, inner: CGFloat) -> CGPath {
     return path
 }
 
+func drawCompactAppIcon(in context: CGContext) {
+    let background = CGPath(
+        roundedRect: CGRect(x: 0.625, y: 0.625, width: 14.75, height: 14.75),
+        cornerWidth: 3.625,
+        cornerHeight: 3.625,
+        transform: nil
+    )
+    context.saveGState()
+    context.addPath(background)
+    context.clip()
+    let gradient = CGGradient(
+        colorsSpace: CGColorSpaceCreateDeviceRGB(),
+        colors: [color(0.086, 0.467, 1), color(0.318, 0.275, 0.898)] as CFArray,
+        locations: [0, 1]
+    )!
+    context.drawLinearGradient(
+        gradient,
+        start: CGPoint(x: 2, y: 14.75),
+        end: CGPoint(x: 14.125, y: 1.125),
+        options: []
+    )
+    context.restoreGState()
+
+    let screen = CGPath(
+        roundedRect: CGRect(x: 2, y: 5, width: 9, height: 7),
+        cornerWidth: 1,
+        cornerHeight: 1,
+        transform: nil
+    )
+    context.addPath(screen)
+    context.setFillColor(color(1, 1, 1))
+    context.fillPath()
+
+    let screenInterior = CGPath(
+        roundedRect: CGRect(x: 3, y: 6, width: 7, height: 5),
+        cornerWidth: 0.5,
+        cornerHeight: 0.5,
+        transform: nil
+    )
+    context.addPath(screenInterior)
+    context.setFillColor(color(0.35, 0.47, 0.93))
+    context.fillPath()
+
+    context.setFillColor(color(1, 1, 1))
+    context.fill(CGRect(x: 6, y: 3, width: 2, height: 3))
+    context.addPath(CGPath(
+        roundedRect: CGRect(x: 4, y: 2, width: 6, height: 2),
+        cornerWidth: 1,
+        cornerHeight: 1,
+        transform: nil
+    ))
+    context.fillPath()
+
+    context.addPath(sparklePath(center: CGPoint(x: 12.7, y: 12.7), outer: 2.35, inner: 1))
+    context.setFillColor(color(1, 1, 1))
+    context.fillPath()
+    context.addPath(sparklePath(center: CGPoint(x: 12.7, y: 12.7), outer: 1.55, inner: 0.65))
+    context.setFillColor(color(0.73, 0.96, 1))
+    context.fillPath()
+}
+
 func drawAppIcon(in context: CGContext, pixels: Int) {
     let lineWidth: CGFloat = pixels <= 32 ? 7 : 6
     let background = CGPath(
@@ -139,8 +200,12 @@ func pngData(pixels: Int) throws -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = graphics
     graphics.cgContext.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
-    graphics.cgContext.scaleBy(x: CGFloat(pixels) / 128, y: CGFloat(pixels) / 128)
-    drawAppIcon(in: graphics.cgContext, pixels: pixels)
+    if pixels == 16 {
+        drawCompactAppIcon(in: graphics.cgContext)
+    } else {
+        graphics.cgContext.scaleBy(x: CGFloat(pixels) / 128, y: CGFloat(pixels) / 128)
+        drawAppIcon(in: graphics.cgContext, pixels: pixels)
+    }
     graphics.flushGraphics()
     NSGraphicsContext.restoreGraphicsState()
     guard let data = bitmap.representation(using: .png, properties: [:]) else {
