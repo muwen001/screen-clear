@@ -79,7 +79,7 @@ enum LinkDescriptionPatcher {
         }
         do {
             guard let root = readMutable(systemPath) else { return .failure("无法读取系统级配置") }
-            try backup(systemPath)
+            try backup(systemPath, to: backupDir)
             let patched = applyTo(root: root, uuid: uuid, fallbackLogical: fallback)
             guard patched else { return .failure("系统配置中未找到外接屏条目") }
             let data = try PropertyListSerialization.data(fromPropertyList: root, format: .xml, options: 0)
@@ -153,10 +153,11 @@ enum LinkDescriptionPatcher {
     static func apply(
         filePath: String,
         uuid: String?,
-        fallbackLogical: (w: Int, h: Int, isHiDPI: Bool)?
+        fallbackLogical: (w: Int, h: Int, isHiDPI: Bool)?,
+        backupDirectory: URL = backupDir
     ) throws -> Bool {
         guard let root = readMutable(filePath) else { throw CocoaError(.fileReadUnknown) }
-        try backup(filePath)
+        try backup(filePath, to: backupDirectory)
         guard applyTo(root: root, uuid: uuid, fallbackLogical: fallbackLogical) else { return false }
         try write(root, to: filePath)
         return true
@@ -214,11 +215,13 @@ enum LinkDescriptionPatcher {
         return false
     }
 
-    private static func backup(_ filePath: String) throws {
-        try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
-        let dest = backupDir.appendingPathComponent(URL(fileURLWithPath: filePath).lastPathComponent + ".bak")
-        if !FileManager.default.fileExists(atPath: dest.path) {
-            try FileManager.default.copyItem(atPath: filePath, toPath: dest.path)
+    private static func backup(_ filePath: String, to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(
+            URL(fileURLWithPath: filePath).lastPathComponent + ".bak"
+        )
+        if !FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.copyItem(atPath: filePath, toPath: destination.path)
         }
     }
 

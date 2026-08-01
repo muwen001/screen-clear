@@ -62,8 +62,14 @@ enum SelfTest {
 
         // 5. LinkDescription 补丁（在临时副本上干跑，不碰真实文件）
         lines.append("== LinkDescriptionPatcher（临时副本干跑）==")
-        let tempDir = NSTemporaryDirectory() + "screenclear-selftest-\(ProcessInfo.processInfo.processIdentifier)"
-        let tmpFile = tempDir + "/test.plist"
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "screenclear-selftest-\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true
+            )
+        let tempFile = tempRoot.appendingPathComponent("test.plist")
+        let tempBackups = tempRoot.appendingPathComponent("Backups", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
         let testPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,15 +101,17 @@ enum SelfTest {
         """
         var patchOK = false
         do {
-            try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
-            try testPlist.write(toFile: tmpFile, atomically: true, encoding: .utf8)
-            // 用临时备份目录避免污染真实备份
-            // （apply 会备份到 App Support；为保持自检无副作用，改用不存在的 UUID 测试 fallback 路径）
-            let _ = try LinkDescriptionPatcher.apply(filePath: tmpFile, uuid: "OTHER-UUID", fallbackLogical: nil)
-            let _ = try LinkDescriptionPatcher.apply(filePath: tmpFile, uuid: "TEST-UUID-1234", fallbackLogical: nil)
+            try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+            try testPlist.write(to: tempFile, atomically: true, encoding: .utf8)
+            let patched = try LinkDescriptionPatcher.apply(
+                filePath: tempFile.path,
+                uuid: "TEST-UUID-1234",
+                fallbackLogical: nil,
+                backupDirectory: tempBackups
+            )
+            guard patched else { throw "临时 plist 中未匹配测试 UUID" }
             patchOK = true
             lines.append("  补丁写入+匹配逻辑 OK（临时文件）")
-            try? FileManager.default.removeItem(atPath: tempDir)
         } catch {
             lines.append("  补丁 FAIL: \(error.localizedDescription)")
         }
