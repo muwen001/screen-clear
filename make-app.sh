@@ -14,12 +14,19 @@ esac
 app_name="ScreenClear.app"
 bundle_id="local.screenclear"
 project_app="$project_root/$app_name"
+dist_dir="$project_root/dist"
 zip_path="$project_root/dist/ScreenClear-macos-arm64.zip"
 install_target="/Applications/$app_name"
 stage_root=$(mktemp -d "${TMPDIR:-/tmp}/screenclear-build.XXXXXX")
 staged_app="$stage_root/$app_name"
+staged_zip="$stage_root/ScreenClear-macos-arm64.zip"
+preserve_stage=false
 
 cleanup() {
+    if [[ "$preserve_stage" = true ]]; then
+        printf '保留恢复暂存目录: %s\n' "$stage_root" >&2
+        return
+    fi
     if [[ -n "${stage_root:-}" && -d "$stage_root" && ! -L "$stage_root" ]]; then
         case "$stage_root" in
             */screenclear-build.*) /bin/rm -rf -- "$stage_root" ;;
@@ -29,23 +36,157 @@ cleanup() {
 }
 trap cleanup EXIT
 
-publish_project_app() {
-    local previous="$stage_root/previous-project.app"
+validate_project_outputs() {
+    local existing_id=""
+    local resolved_dist
 
-    [[ ! -L "$project_app" ]] || { printf '拒绝覆盖符号链接: %s\n' "$project_app" >&2; return 1; }
-    [[ ! -e "$project_app" || -d "$project_app" ]] || {
-        printf '拒绝覆盖非目录: %s\n' "$project_app" >&2
+    [[ ! -L "$project_app" ]] || {
+        printf '拒绝覆盖符号链接: %s\n' "$project_app" >&2
         return 1
     }
+    if [[ -e "$project_app" ]]; then
+        [[ -d "$project_app" ]] || {
+            printf '拒绝覆盖非目录: %s\n' "$project_app" >&2
+            return 1
+        }
+        existing_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$project_app/Contents/Info.plist" 2>/dev/null || true)
+        [[ "$existing_id" = "$bundle_id" ]] || {
+            printf '拒绝覆盖未知应用，Bundle ID=%s\n' "$existing_id" >&2
+            return 1
+        }
+    fi
 
-    [[ ! -d "$project_app" ]] || mv "$project_app" "$previous"
+    [[ ! -L "$dist_dir" ]] || {
+        printf '拒绝使用符号链接目录: %s\n' "$dist_dir" >&2
+        return 1
+    }
+    [[ ! -e "$dist_dir" || -d "$dist_dir" ]] || {
+        printf '拒绝使用非目录: %s\n' "$dist_dir" >&2
+        return 1
+    }
+    mkdir -p "$dist_dir"
+    resolved_dist=$(cd "$dist_dir" && pwd -P)
+    [[ "$resolved_dist" = "$dist_dir" ]] || {
+        printf '发布目录解析异常: %s\n' "$resolved_dist" >&2
+        return 1
+    }
+    [[ ! -L "$zip_path" ]] || {
+        printf '拒绝覆盖符号链接: %s\n' "$zip_path" >&2
+        return 1
+    }
+    [[ ! -e "$zip_path" || -f "$zip_path" ]] || {
+        printf '拒绝覆盖非文件: %s\n' "$zip_path" >&2
+        return 1
+    }
+}
+
+rollback_publication() {
+    local previous_app="$1"
+    local previous_zip="$2"
+    local app_publish_attempted="$3"
+    local zip_publish_attempted="$4"
+    local rollback_status=0
+    local published_id=""
+
+    if [[ "$zip_publish_attempted" = true && ( -e "$zip_path" || -L "$zip_path" ) ]]; then
+        if [[ "$zip_path" = "$project_root/dist/ScreenClear-macos-arm64.zip" &&
+              -f "$zip_path" && ! -L "$zip_path" ]]; then
+            if ! /bin/rm -- "$zip_path"; then
+                printf '无法移除失败的 ZIP: %s\n' "$zip_path" >&2
+                rollback_status=1
+            fi
+        else
+            printf '拒绝移除意外 ZIP 目标: %s\n' "$zip_path" >&2
+            rollback_status=1
+        fi
+    fi
+    if [[ -f "$previous_zip" && ! -L "$previous_zip" ]]; then
+        if [[ ! -e "$zip_path" && ! -L "$zip_path" ]]; then
+            if ! mv "$previous_zip" "$zip_path"; then
+                printf '无法恢复原 ZIP: %s\n' "$zip_path" >&2
+                rollback_status=1
+            fi
+        else
+            printf 'ZIP 目标未腾空，无法恢复: %s\n' "$zip_path" >&2
+            rollback_status=1
+        fi
+    fi
+
+    if [[ "$app_publish_attempted" = true && ( -e "$project_app" || -L "$project_app" ) ]]; then
+        published_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$project_app/Contents/Info.plist" 2>/dev/null || true)
+        if [[ "$project_app" = "$project_root/ScreenClear.app" &&
+              -d "$project_app" && ! -L "$project_app" &&
+              "$published_id" = "$bundle_id" ]]; then
+            if ! /bin/rm -rf -- "$project_app"; then
+                printf '无法移除失败的应用: %s\n' "$project_app" >&2
+                rollback_status=1
+            fi
+        else
+            printf '拒绝移除意外应用目标: %s\n' "$project_app" >&2
+            rollback_status=1
+        fi
+    fi
+    if [[ -d "$previous_app" && ! -L "$previous_app" ]]; then
+        if [[ ! -e "$project_app" && ! -L "$project_app" ]]; then
+            if ! mv "$previous_app" "$project_app"; then
+                printf '无法恢复原应用: %s\n' "$project_app" >&2
+                rollback_status=1
+            fi
+        else
+            printf '应用目标未腾空，无法恢复: %s\n' "$project_app" >&2
+            rollback_status=1
+        fi
+    fi
+
+    if [[ "$rollback_status" -ne 0 ]]; then
+        preserve_stage=true
+    fi
+    return "$rollback_status"
+}
+
+publish_artifacts() {
+    local previous_app="$stage_root/previous-project.app"
+    local previous_zip="$stage_root/previous-project.zip"
+    local app_publish_attempted=false
+    local zip_publish_attempted=false
+
+    validate_project_outputs || return 1
+
+    if [[ -d "$project_app" ]]; then
+        if ! mv "$project_app" "$previous_app"; then
+            return 1
+        fi
+    fi
+    if [[ -f "$zip_path" ]]; then
+        if ! mv "$zip_path" "$previous_zip"; then
+            rollback_publication "$previous_app" "$previous_zip" \
+                "$app_publish_attempted" "$zip_publish_attempted" || true
+            return 1
+        fi
+    fi
+
+    app_publish_attempted=true
     if ! mv "$staged_app" "$project_app"; then
-        [[ ! -d "$previous" ]] || mv "$previous" "$project_app"
+        rollback_publication "$previous_app" "$previous_zip" \
+            "$app_publish_attempted" "$zip_publish_attempted" || true
+        return 1
+    fi
+    zip_publish_attempted=true
+    if ! mv "$staged_zip" "$zip_path"; then
+        rollback_publication "$previous_app" "$previous_zip" \
+            "$app_publish_attempted" "$zip_publish_attempted" || true
         return 1
     fi
     if ! codesign --verify --deep --strict --verbose=2 "$project_app"; then
-        mv "$project_app" "$stage_root/failed-project.app"
-        [[ ! -d "$previous" ]] || mv "$previous" "$project_app"
+        rollback_publication "$previous_app" "$previous_zip" \
+            "$app_publish_attempted" "$zip_publish_attempted" || true
+        return 1
+    fi
+    if ! unzip -tq "$zip_path"; then
+        rollback_publication "$previous_app" "$previous_zip" \
+            "$app_publish_attempted" "$zip_publish_attempted" || true
         return 1
     fi
 }
@@ -138,13 +279,10 @@ plutil -lint "$staged_app/Contents/Info.plist"
 codesign --force --deep --sign - --timestamp=none "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"
 
-publish_project_app
-
-mkdir -p "$project_root/dist"
-staged_zip="$stage_root/ScreenClear-macos-arm64.zip"
-ditto -c -k --sequesterRsrc --keepParent "$project_app" "$staged_zip"
+ditto -c -k --sequesterRsrc --keepParent "$staged_app" "$staged_zip"
 unzip -tq "$staged_zip"
-mv -f "$staged_zip" "$zip_path"
+
+publish_artifacts
 
 if [[ "$install_requested" = true ]]; then
     install_app
