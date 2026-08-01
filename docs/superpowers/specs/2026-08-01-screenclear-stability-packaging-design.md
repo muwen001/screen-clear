@@ -119,4 +119,4 @@
 
 ## 回滚
 
-代码和脚本更改可通过原始文件副本或手工还原；当前目录没有 Git 历史，无法依靠提交回滚。安装脚本在替换失败时自动恢复旧应用。首次安装后如需卸载，只需退出 ScreenClear 并移除固定目标 `/Applications/ScreenClear.app`；本次安装本身不会写入系统显示配置或 LaunchAgent。
+代码和脚本更改按独立任务提交到 Git，可通过提交历史回滚。安装脚本在替换失败时自动恢复旧应用。首次安装后如需卸载，只需退出 ScreenClear 并移除固定目标 `/Applications/ScreenClear.app`；本次安装本身不会写入系统显示配置或 LaunchAgent。
