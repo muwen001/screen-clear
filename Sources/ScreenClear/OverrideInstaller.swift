@@ -7,20 +7,99 @@ enum OverrideInstaller {
         FileManager.default.fileExists(atPath: OverrideBuilder.targetFile)
     }
 
-    static func install(plistXML: String) async -> Result<Void, String> {
-        let tmp = "/tmp/screenclear-\(ProcessInfo.processInfo.processIdentifier).plist"
+    static func configurationState(
+        atPath path: String = OverrideBuilder.targetFile
+    ) -> OverrideConfigurationState {
+        guard FileManager.default.fileExists(atPath: path) else { return .missing }
         do {
-            try plistXML.write(toFile: tmp, atomically: true, encoding: .utf8)
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            return OverrideBuilder.configurationState(for: data)
         } catch {
-            return .failure("写入临时文件失败: \(error.localizedDescription)")
+            return .invalid("读取 override 失败：\(error.localizedDescription)")
         }
-        let script = """
-        do shell script "mkdir -p '\(OverrideBuilder.targetDir)' && cp '\(tmp)' '\(OverrideBuilder.targetFile)'" \
-        with administrator privileges
-        """
-        let result = await runOSAScript(script)
-        try? FileManager.default.removeItem(atPath: tmp)
-        return result
+    }
+
+    static func existingData(
+        atPath path: String = OverrideBuilder.targetFile
+    ) -> Result<Data?, String> {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .success(nil)
+        }
+        do {
+            return .success(try Data(contentsOf: URL(fileURLWithPath: path)))
+        } catch {
+            return .failure("读取 override 失败：\(error.localizedDescription)")
+        }
+    }
+
+    static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    static func privilegedInstallCommand(
+        sourcePath: String,
+        targetDirectory: String,
+        targetFile: String,
+        token: String
+    ) -> String {
+        let stage = targetFile + ".screenclear-" + token
+        return [
+            "set -e",
+            "stage=\(shellQuote(stage))",
+            "cleanup() { /bin/rm -f \"$stage\"; }",
+            "trap cleanup EXIT HUP INT TERM",
+            "/bin/mkdir -p \(shellQuote(targetDirectory))",
+            "/bin/cp \(shellQuote(sourcePath)) \"$stage\"",
+            "/usr/bin/plutil -lint \"$stage\" >/dev/null",
+            "/bin/chmod 0644 \"$stage\"",
+            "/bin/mv -f \"$stage\" \(shellQuote(targetFile))",
+            "trap - EXIT HUP INT TERM",
+        ].joined(separator: "; ")
+    }
+
+    static func appleScriptStringLiteral(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    static func install(plistXML: String) async -> Result<Void, String> {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "screenclear-override-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let source = root.appendingPathComponent("override.plist")
+        var ownsRoot = false
+        do {
+            try FileManager.default.createDirectory(
+                at: root,
+                withIntermediateDirectories: false
+            )
+            ownsRoot = true
+            try plistXML.write(to: source, atomically: true, encoding: .utf8)
+        } catch {
+            if ownsRoot {
+                try? FileManager.default.removeItem(at: root)
+            }
+            return .failure("写入临时 override 失败：\(error.localizedDescription)")
+        }
+        defer {
+            if ownsRoot {
+                try? FileManager.default.removeItem(at: root)
+            }
+        }
+
+        let command = privilegedInstallCommand(
+            sourcePath: source.path,
+            targetDirectory: OverrideBuilder.targetDir,
+            targetFile: OverrideBuilder.targetFile,
+            token: UUID().uuidString
+        )
+        let script = "do shell script \(appleScriptStringLiteral(command)) "
+            + "with administrator privileges"
+        return await runOSAScript(script)
     }
 
     static func uninstall() async -> Result<Void, String> {
