@@ -40,7 +40,8 @@ test ! -L "$output_root/MenuBarIcon.pdf"
 /usr/bin/xcrun swift "$generator" "$output_root"
 
 small_icon="$output_root/ScreenClear.iconset/icon_16x16.png"
-/usr/bin/xcrun swift - "$small_icon" <<'SWIFT'
+validate_small_icon() {
+    /usr/bin/xcrun swift - "$1" <<'SWIFT'
 import AppKit
 import Foundation
 
@@ -71,17 +72,27 @@ func fail(_ message: String) -> Never {
 }
 
 let white: (NSColor) -> Bool = {
-    min($0.redComponent, min($0.greenComponent, $0.blueComponent)) >= 0.90
+    $0.alphaComponent >= 0.95 && min($0.redComponent, min($0.greenComponent, $0.blueComponent)) >= 0.90
 }
 let cyan: (NSColor) -> Bool = {
-    $0.redComponent >= 0.55 && $0.greenComponent >= 0.75 && $0.blueComponent >= 0.85
+    $0.alphaComponent >= 0.95 &&
+        $0.redComponent >= 0.55 &&
+        $0.greenComponent >= 0.75 &&
+        $0.blueComponent >= 0.85 &&
+        $0.greenComponent - $0.redComponent >= 0.15 &&
+        $0.blueComponent - $0.redComponent >= 0.15
 }
 
 // These hand-picked decoded-PNG regions use y=0 at the image top and cover the visible monitor, stand, and sparkle.
 guard countPixels(x: 2...3, y: 6...10, matching: white) >= 5,
-      countPixels(x: 4...9, y: 10...11, matching: white) >= 5,
       countPixels(x: 10...11, y: 6...9, matching: white) >= 4 else {
-    fail("display boundary")
+    fail("display side boundary")
+}
+guard countPixels(x: 4...9, y: 4...5, matching: white) >= 5 else {
+    fail("display top boundary")
+}
+guard countPixels(x: 4...9, y: 10...10, matching: white) >= 5 else {
+    fail("display bottom boundary")
 }
 guard countPixels(x: 6...7, y: 11...12, matching: white) >= 2,
       countPixels(x: 4...9, y: 12...13, matching: white) >= 4 else {
@@ -91,6 +102,104 @@ guard countPixels(x: 11...15, y: 1...5, matching: cyan) >= 3 else {
     fail("upper-right sparkle")
 }
 SWIFT
+}
+
+mutate_small_icon() {
+    /usr/bin/xcrun swift - "$1" "$2" "$3" <<'SWIFT'
+import AppKit
+import Foundation
+
+guard CommandLine.arguments.count == 4,
+      let data = try? Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])),
+      let image = NSBitmapImageRep(data: data),
+      let mutable = NSBitmapImageRep(
+          bitmapDataPlanes: nil,
+          pixelsWide: image.pixelsWide,
+          pixelsHigh: image.pixelsHigh,
+          bitsPerSample: 8,
+          samplesPerPixel: 4,
+          hasAlpha: true,
+          isPlanar: false,
+          colorSpaceName: .deviceRGB,
+          bytesPerRow: 0,
+          bitsPerPixel: 0
+      ) else {
+    fputs("cannot decode mutation fixture\n", stderr)
+    exit(1)
+}
+
+let destination = URL(fileURLWithPath: CommandLine.arguments[2])
+let mutation = CommandLine.arguments[3]
+var changes = 0
+
+func isCyan(_ pixel: NSColor) -> Bool {
+    pixel.alphaComponent >= 0.95 &&
+        pixel.redComponent >= 0.55 &&
+        pixel.greenComponent >= 0.75 &&
+        pixel.blueComponent >= 0.85 &&
+        pixel.greenComponent - pixel.redComponent >= 0.15 &&
+        pixel.blueComponent - pixel.redComponent >= 0.15
+}
+
+for y in 0..<image.pixelsHigh {
+    for x in 0..<image.pixelsWide {
+        guard let pixel = image.colorAt(x: x, y: y) else {
+            fputs("cannot read mutation fixture pixel\n", stderr)
+            exit(1)
+        }
+        var replacement = NSColor(
+            deviceRed: pixel.redComponent,
+            green: pixel.greenComponent,
+            blue: pixel.blueComponent,
+            alpha: pixel.alphaComponent
+        )
+        switch mutation {
+        case "sparkle" where (11...15).contains(x) && (1...5).contains(y) && isCyan(pixel):
+            replacement = NSColor(deviceRed: 1, green: 1, blue: 1, alpha: 1)
+            changes += 1
+        case "top-boundary" where (4...9).contains(x) && (4...5).contains(y):
+            replacement = NSColor(deviceRed: 0.12, green: 0.25, blue: 0.85, alpha: 1)
+            changes += 1
+        default:
+            break
+        }
+        mutable.setColor(replacement, atX: x, y: y)
+    }
+}
+
+guard changes > 0,
+      let encoded = mutable.representation(using: .png, properties: [:]) else {
+    fputs("cannot create mutation fixture\n", stderr)
+    exit(1)
+}
+do {
+    try encoded.write(to: destination, options: .withoutOverwriting)
+} catch {
+    fputs("cannot write mutation fixture: \(error.localizedDescription)\n", stderr)
+    exit(1)
+}
+SWIFT
+}
+
+sparkle_fixture="$test_root/mutated-sparkle-16px.png"
+mutate_small_icon "$small_icon" "$sparkle_fixture" sparkle
+set +e
+validate_small_icon "$sparkle_fixture" >"$test_root/mutated-sparkle.out" 2>&1
+sparkle_fixture_status=$?
+set -e
+test "$sparkle_fixture_status" -ne 0
+grep -qx '16px icon visibility failure: upper-right sparkle' "$test_root/mutated-sparkle.out"
+
+top_boundary_fixture="$test_root/mutated-top-boundary-16px.png"
+mutate_small_icon "$small_icon" "$top_boundary_fixture" top-boundary
+set +e
+validate_small_icon "$top_boundary_fixture" >"$test_root/mutated-top-boundary.out" 2>&1
+top_boundary_fixture_status=$?
+set -e
+test "$top_boundary_fixture_status" -ne 0
+grep -qx '16px icon visibility failure: display top boundary' "$test_root/mutated-top-boundary.out"
+
+validate_small_icon "$small_icon"
 
 while IFS=: read -r name width height; do
     image="$output_root/ScreenClear.iconset/$name"
