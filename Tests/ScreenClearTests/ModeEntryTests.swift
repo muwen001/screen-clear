@@ -17,6 +17,67 @@ final class ModeEntryTests: XCTestCase {
         XCTAssertNotEqual(standard.id, alternate.id)
     }
 
+    func testIDPreservesFullRefreshPrecision() {
+        let lower = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 59.1, isHiDPI: true, isCurrent: false
+        )
+        let higher = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 59.9, isHiDPI: true, isCurrent: false
+        )
+
+        XCTAssertNotEqual(lower.id, higher.id)
+    }
+
+    func testDeduplicationUsesConfigurationTolerance() {
+        let fractional = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 59.94, isHiDPI: true, isCurrent: true
+        )
+        let toleranceEquivalent = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 60.0, isHiDPI: true, isCurrent: false
+        )
+        let outsideTolerance = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 60.05, isHiDPI: true, isCurrent: false
+        )
+        let zeroRefresh = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 0.0, isHiDPI: true, isCurrent: false
+        )
+        let exactToleranceBoundary = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 0.1, isHiDPI: true, isCurrent: false
+        )
+
+        let toleranceEquivalentResult = ModeEntry.deduplicatedConfigurations([
+            fractional,
+            toleranceEquivalent,
+        ])
+        let outsideToleranceResult = ModeEntry.deduplicatedConfigurations([
+            fractional,
+            outsideTolerance,
+        ])
+        let exactBoundaryResult = ModeEntry.deduplicatedConfigurations([
+            zeroRefresh,
+            exactToleranceBoundary,
+        ])
+
+        XCTAssertEqual(toleranceEquivalentResult.map(\.refreshRate), [59.94])
+        XCTAssertTrue(toleranceEquivalentResult[0].isCurrent)
+        XCTAssertEqual(outsideToleranceResult.map(\.refreshRate), [59.94, 60.05])
+        XCTAssertEqual(exactBoundaryResult.map(\.refreshRate), [0.0, 0.1])
+    }
+
     func testComparisonRejectsSamePixelsWithDifferentLogicalMode() {
         let hiDPI = ModeEntry(
             logicalWidth: 1280, logicalHeight: 720,

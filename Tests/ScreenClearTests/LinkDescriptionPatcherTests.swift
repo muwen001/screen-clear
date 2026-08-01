@@ -12,7 +12,6 @@ final class LinkDescriptionPatcherTests: XCTestCase {
             .appendingPathComponent(source.lastPathComponent + ".bak")
         defer {
             try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: unexpected)
         }
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

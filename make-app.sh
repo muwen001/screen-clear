@@ -5,11 +5,20 @@ project_root=$(cd "$(dirname "$0")" && pwd -P)
 cd "$project_root"
 
 install_requested=false
-case "${1:-}" in
-    "") ;;
-    --install) install_requested=true ;;
-    *) printf '用法: %s [--install]\n' "$0" >&2; exit 64 ;;
-esac
+if [[ "$#" -gt 1 ]]; then
+    printf '用法: %s [--install]\n' "$0" >&2
+    exit 64
+fi
+if [[ "$#" -eq 1 ]]; then
+    if [[ "$1" = "--install" ]]; then
+        install_requested=true
+    else
+        printf '用法: %s [--install]\n' "$0" >&2
+        exit 64
+    fi
+fi
+
+. "$project_root/Scripts/Packaging/install-lifecycle.sh"
 
 app_name="ScreenClear.app"
 bundle_id="local.screenclear"
@@ -195,11 +204,107 @@ install_app() {
     local resolved_parent
     local install_backup="/Applications/.ScreenClear.backup.$$"
     local existing_id=""
+    local installed_executable="$install_target/Contents/MacOS/ScreenClear"
+    local old_pids_output=""
+    local new_pids_output=""
+    local process_id
+    local attempt
+    local -a old_pids=()
 
     remove_new_install() {
-        [[ "$install_target" = "/Applications/ScreenClear.app" ]]
-        [[ -d "$install_target" && ! -L "$install_target" ]]
-        /bin/rm -rf -- "$install_target"
+        [[ "$install_target" = "/Applications/ScreenClear.app" ]] || return 1
+        [[ -d "$install_target" && ! -L "$install_target" ]] || return 1
+        if ! /bin/rm -rf -- "$install_target"; then
+            printf '无法移除失败的新应用，停止回滚: %s\n' "$install_target" >&2
+            return 1
+        fi
+        [[ ! -e "$install_target" && ! -L "$install_target" ]] || {
+            printf '失败的新应用仍然存在，停止回滚: %s\n' "$install_target" >&2
+            return 1
+        }
+    }
+
+    rollback_install() {
+        local active_pids_output=""
+        local active_pid
+        local -a active_pids=()
+
+        if [[ -f "$installed_executable" && ! -L "$installed_executable" ]]; then
+            active_pids_output=$(screenclear_pids_for_executable "$installed_executable") || {
+                printf '无法检查失败新应用的进程，停止回滚\n' >&2
+                return 1
+            }
+            while IFS= read -r active_pid; do
+                [[ -n "$active_pid" ]] || continue
+                active_pids+=("$active_pid")
+            done <<< "$active_pids_output"
+        fi
+
+        if [[ "${#active_pids[@]}" -gt 0 ]]; then
+            /usr/bin/osascript -e 'tell application id "local.screenclear" to quit' \
+                >/dev/null 2>&1 || true
+            if ! screenclear_wait_for_pids_to_exit 10 "${active_pids[@]}"; then
+                printf '失败的新应用仍在运行，保留新旧 bundle 并停止: PID %s\n' \
+                    "${active_pids[*]}" >&2
+                return 1
+            fi
+        fi
+
+        if [[ -e "$install_target" || -L "$install_target" ]]; then
+            remove_new_install || return 1
+        fi
+        if [[ -d "$install_backup" && ! -L "$install_backup" ]]; then
+            if ! mv "$install_backup" "$install_target"; then
+                printf '无法恢复原应用，备份保留在: %s\n' "$install_backup" >&2
+                return 1
+            fi
+        fi
+    }
+
+    validate_new_install() {
+        local installed_id
+        local minimum_system
+        local packaged_hash
+        local installed_hash
+        local details
+
+        [[ -d "$install_target" && ! -L "$install_target" ]] || return 1
+        [[ -x "$installed_executable" && ! -L "$installed_executable" ]] || return 1
+        installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$install_target/Contents/Info.plist" 2>/dev/null || true)
+        minimum_system=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
+            "$install_target/Contents/Info.plist" 2>/dev/null || true)
+        [[ "$installed_id" = "$bundle_id" && "$minimum_system" = "14.0" ]] || return 1
+        codesign --verify --deep --strict --verbose=2 "$install_target" || return 1
+        details=$(codesign -dv --verbose=4 "$install_target" 2>&1) || return 1
+        printf '%s\n' "$details" | grep -q '^Identifier=local.screenclear$' || return 1
+        printf '%s\n' "$details" | grep -q '^Signature=adhoc$' || return 1
+        file "$installed_executable" | grep -q 'Mach-O 64-bit executable arm64' || return 1
+        packaged_hash=$(shasum -a 256 "$project_app/Contents/MacOS/ScreenClear" | awk '{print $1}')
+        installed_hash=$(shasum -a 256 "$installed_executable" | awk '{print $1}')
+        [[ "$packaged_hash" = "$installed_hash" ]]
+    }
+
+    remove_install_backup() {
+        local backup_id
+        local backup_executable="$install_backup/Contents/MacOS/ScreenClear"
+        local backup_pids=""
+
+        [[ "$install_backup" = "/Applications/.ScreenClear.backup.$$" ]] || return 1
+        [[ -d "$install_backup" && ! -L "$install_backup" ]] || return 1
+        backup_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            "$install_backup/Contents/Info.plist" 2>/dev/null || true)
+        [[ "$backup_id" = "$bundle_id" ]] || return 1
+        backup_pids=$(screenclear_pids_for_executable "$backup_executable") || return 1
+        [[ -z "$backup_pids" ]] || {
+            printf '原应用备份仍被进程使用，保留并停止: PID %s\n' "$backup_pids" >&2
+            return 1
+        }
+        if ! /bin/rm -rf -- "$install_backup"; then
+            printf '无法移除原应用备份，停止: %s\n' "$install_backup" >&2
+            return 1
+        fi
+        [[ ! -e "$install_backup" && ! -L "$install_backup" ]]
     }
 
     resolved_parent=$(cd /Applications && pwd -P)
@@ -226,30 +331,91 @@ install_app() {
             printf '拒绝覆盖未知应用，Bundle ID=%s\n' "$existing_id" >&2
             return 1
         }
-        /usr/bin/osascript -e 'tell application id "local.screenclear" to quit' \
-            >/dev/null 2>&1 || true
-        mv "$install_target" "$install_backup"
+        [[ -x "$installed_executable" && ! -L "$installed_executable" ]] || {
+            printf '现有应用缺少预期可执行文件: %s\n' "$installed_executable" >&2
+            return 1
+        }
+        codesign --verify --deep --strict --verbose=2 "$install_target" || {
+            printf '现有应用签名校验失败，拒绝替换\n' >&2
+            return 1
+        }
+
+        old_pids_output=$(screenclear_pids_for_executable "$installed_executable") || {
+            printf '无法记录现有应用进程，拒绝替换\n' >&2
+            return 1
+        }
+        while IFS= read -r process_id; do
+            [[ -n "$process_id" ]] || continue
+            old_pids+=("$process_id")
+        done <<< "$old_pids_output"
+        if [[ "${#old_pids[@]}" -gt 0 ]]; then
+            printf '现有 ScreenClear PID: %s\n' "${old_pids[*]}"
+            /usr/bin/osascript -e 'tell application id "local.screenclear" to quit' \
+                >/dev/null 2>&1 || true
+            if ! screenclear_wait_for_pids_to_exit 10 "${old_pids[@]}"; then
+                printf '现有 ScreenClear 未在时限内退出，安装目标保持不变: PID %s\n' \
+                    "${old_pids[*]}" >&2
+                return 1
+            fi
+            printf '现有 ScreenClear 已退出: %s\n' "${old_pids[*]}"
+        else
+            printf '现有 ScreenClear PID: 无\n'
+        fi
+
+        if ! mv "$install_target" "$install_backup"; then
+            printf '无法保留原应用备份，安装目标保持不变\n' >&2
+            return 1
+        fi
     fi
 
     if ! ditto "$project_app" "$install_target"; then
-        if [[ -d "$install_target" && ! -L "$install_target" ]]; then
-            remove_new_install
+        printf '复制新应用失败，开始恢复原应用\n' >&2
+        if ! rollback_install; then
+            printf '自动恢复失败，请保留现场并检查 %s\n' "$install_backup" >&2
         fi
-        [[ ! -d "$install_backup" ]] || mv "$install_backup" "$install_target"
         return 1
     fi
-    if ! codesign --verify --deep --strict --verbose=2 "$install_target"; then
-        if [[ -d "$install_target" && ! -L "$install_target" ]]; then
-            remove_new_install
+    if ! validate_new_install; then
+        printf '新应用精确校验失败，开始恢复原应用\n' >&2
+        if ! rollback_install; then
+            printf '自动恢复失败，请保留现场并检查 %s\n' "$install_backup" >&2
         fi
-        [[ ! -d "$install_backup" ]] || mv "$install_backup" "$install_target"
         return 1
     fi
-    if [[ -d "$install_backup" && ! -L "$install_backup" ]]; then
-        [[ "$install_backup" = "/Applications/.ScreenClear.backup.$$" ]]
-        /bin/rm -rf -- "$install_backup"
+
+    if ! /usr/bin/open "$install_target"; then
+        printf '启动新应用失败，开始恢复原应用\n' >&2
+        if ! rollback_install; then
+            printf '自动恢复失败，请保留现场并检查 %s\n' "$install_backup" >&2
+        fi
+        return 1
     fi
-    open "$install_target"
+
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        new_pids_output=$(screenclear_new_pids_excluding_recorded \
+            "$installed_executable" "$old_pids_output") || {
+                printf '无法确认新应用进程，开始恢复原应用\n' >&2
+                if ! rollback_install; then
+                    printf '自动恢复失败，请保留现场并检查 %s\n' "$install_backup" >&2
+                fi
+                return 1
+            }
+        [[ -z "$new_pids_output" ]] || break
+        sleep 1
+    done
+    if [[ -z "$new_pids_output" ]]; then
+        printf '未发现来自精确安装路径的新进程，开始恢复原应用\n' >&2
+        if ! rollback_install; then
+            printf '自动恢复失败，请保留现场并检查 %s\n' "$install_backup" >&2
+        fi
+        return 1
+    fi
+    printf '新 ScreenClear PID: %s（可执行文件: %s）\n' \
+        "$new_pids_output" "$installed_executable"
+
+    if [[ -d "$install_backup" || -L "$install_backup" ]]; then
+        remove_install_backup || return 1
+    fi
 }
 
 swift build -c release

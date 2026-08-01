@@ -57,12 +57,9 @@ enum DisplayManager {
     static func modeEntries(for displayID: CGDirectDisplayID) -> [ModeEntry] {
         let current = CGDisplayCopyDisplayMode(displayID)
         let currentEntry = current.map { entry(for: $0, isCurrent: true) }
-        var seen = Set<String>()
         var entries: [ModeEntry] = []
         for mode in allModes(for: displayID) {
             let candidate = entry(for: mode)
-            // 去重：同一 (逻辑尺寸, 渲染尺寸, 刷新率, HiDPI) 只保留一条
-            guard seen.insert(candidate.id).inserted else { continue }
             let isCurrent = currentEntry?.matchesConfiguration(of: candidate) == true
             entries.append(
                 ModeEntry(
@@ -76,7 +73,8 @@ enum DisplayManager {
                 )
             )
         }
-        return entries
+        // 使用与当前模式/切换校验相同的刷新率容差去重，避免身份与匹配规则漂移。
+        return ModeEntry.deduplicatedConfigurations(entries)
     }
 
     /// 显示器的 windowserver UUID（CGDisplayCreateUUIDFromDisplayID 为私有 API，经 dlsym 调用）
@@ -109,7 +107,7 @@ enum DisplayManager {
     }
 
     /// 切换模式并持久化：配置批次 API（.permanently），失败回退 app-only 直接设置。
-    /// 切换后 2s 校验渲染像素尺寸，不符则重试一次。
+    /// 切换后 2s 校验逻辑尺寸、渲染尺寸与刷新率，不符则重试一次。
     static func apply(mode: ModeEntry, on displayID: CGDirectDisplayID) async -> SwitchResult {
         // 匹配需同时比对逻辑尺寸与渲染尺寸：1x/2x 模式渲染像素可能相同（如 960×540@2x 与 1920×1080@1x）
         guard let target = allModes(for: displayID).first(where: {

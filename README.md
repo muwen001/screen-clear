@@ -42,7 +42,7 @@ swift run ScreenClear --selftest          # 只读自检
 
 ## 技术要点
 
-- **模式切换**：`CGBeginDisplayConfiguration` + `CGConfigureDisplayWithDisplayMode` + `CGCompleteDisplayConfiguration(.permanently)`，切换后 2s 校验渲染像素，失败重试一次；显示器休眠时切换会被系统拒绝，先 `caffeinate -u` 唤醒。
+- **模式切换**：`CGBeginDisplayConfiguration` + `CGConfigureDisplayWithDisplayMode` + `CGCompleteDisplayConfiguration(.permanently)`，切换后 2s 校验逻辑尺寸、渲染尺寸与刷新率，失败重试一次；显示器休眠时切换会被系统拒绝，先 `caffeinate -u` 唤醒。
 - **HiDPI 解锁**：one-key-hidpi 同款格式 `base64(4B BE 渲染宽, 4B BE 渲染高, 0x00)`，条目写入前做 base64 往返自检 + `plutil -lint`；M 系列 + Sequoia 有效（Intel 已失效）。
 - **颜色修复**：`LinkDescription = {BitDepth:8, EOTF:0, PixelEncoding:0, Range:1}`，写入 `~/Library/Preferences/ByHost/com.apple.windowserver.displays.*.plist` 的 `DisplaySets:Configs:*:DisplayConfig:*` 条目（按显示器 UUID 匹配，备用分辨率匹配），重启生效；先备份到 `~/Library/Application Support/ScreenClear/Backups/`，可一键恢复。注意：macOS 13.3+ 重启后可能被系统覆盖，属"尽力而为"，对照 BetterDisplay 的信号面板验证。
 - **显示器枚举**：`CGGetOnlineDisplayList`（Active 列表在显示器休眠时返回空）。
