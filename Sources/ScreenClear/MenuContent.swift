@@ -131,17 +131,35 @@ struct MenuContent: View {
         Text("工具")
             .font(.caption)
             .foregroundStyle(.secondary)
-        if !model.overrideInstalled {
-            Button("解锁中档 HiDPI（需管理员密码）") { model.installOverride() }
-                .disabled(model.isBusy)
-        } else {
+        switch model.overrideConfigurationState {
+        case .missing:
+            Button("解锁 HiDPI（需管理员密码）") {
+                model.installOrUpdateOverride()
+            }
+            .disabled(model.isBusy)
+        case .outdated:
+            Button("更新 HiDPI 配置（新增 1080p / 1440p @2x，需管理员密码）") {
+                model.installOrUpdateOverride()
+            }
+            .disabled(model.isBusy)
+        case .current:
             if model.overridePending {
-                Text("⏳ 解锁已写入，正在等待新模式…")
+                Text("⏳ 配置已写入，正在等待 1080p / 1440p @2x…")
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
-            Button("✓ 中档 HiDPI 已解锁（点击移除）") { model.uninstallOverride() }
-                .disabled(model.isBusy)
+            Button("✓ HiDPI 配置已是最新（点击移除）") {
+                model.uninstallOverride()
+            }
+            .disabled(model.isBusy)
+        case .invalid(let reason):
+            Text("⚠️ HiDPI 配置无法安全更新：\(reason)")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            Button("移除无效 HiDPI 配置（需管理员密码）") {
+                model.uninstallOverride()
+            }
+            .disabled(model.isBusy)
         }
         if model.linkPatched {
             Button("✓ 颜色修复已写入（点击恢复 ByHost）") { model.restoreLinkDescription() }

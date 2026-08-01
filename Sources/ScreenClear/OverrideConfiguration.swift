@@ -1,6 +1,11 @@
 import Foundation
 
 extension OverrideBuilder {
+    static let activationModes = managedModes.filter {
+        ($0.logicalWidth == 1920 && $0.logicalHeight == 1080)
+            || ($0.logicalWidth == 2560 && $0.logicalHeight == 1440)
+    }
+
     private static func parsedRoot(from data: Data) -> Result<[String: Any], String> {
         do {
             guard let root = try PropertyListSerialization.propertyList(
@@ -75,6 +80,12 @@ extension OverrideBuilder {
             return .success(xml)
         } catch {
             return .failure("生成 plist 失败：\(error.localizedDescription)")
+        }
+    }
+
+    static func activationModesPresent(in modes: [ModeEntry]) -> Bool {
+        activationModes.allSatisfy { requirement in
+            modes.contains(where: requirement.matches)
         }
     }
 }

@@ -5,6 +5,14 @@ struct HiDPIModeSpec: Hashable, Sendable {
     let logicalHeight: Int
     let pixelWidth: Int
     let pixelHeight: Int
+
+    func matches(_ mode: ModeEntry) -> Bool {
+        mode.isHiDPI
+            && mode.logicalWidth == logicalWidth
+            && mode.logicalHeight == logicalHeight
+            && mode.pixelWidth == pixelWidth
+            && mode.pixelHeight == pixelHeight
+    }
 }
 
 enum OverrideConfigurationState: Equatable, Sendable {
@@ -15,7 +23,7 @@ enum OverrideConfigurationState: Equatable, Sendable {
 }
 
 /// 生成写入 /Library/Displays/Contents/Resources/Overrides 的 plist，
-/// 通过 scale-resolutions 解锁 2K 屏的中档 HiDPI 模式（渲染 2x 后降采样）。
+/// 通过 scale-resolutions 解锁 2K 屏的 HiDPI 模式（渲染 2x 后降采样）。
 /// 格式与 one-key-hidpi 完全一致：base64(4B 大端渲染宽, 4B 大端渲染高, 0x00)。
 enum OverrideBuilder {
     static let vendorID = 1507           // 0x5e3 (AOC)
@@ -76,35 +84,4 @@ enum OverrideBuilder {
         return w == pixelWidth && h == pixelHeight && data[8] == 0
     }
 
-    static func buildPlist(renderResolutions: [(pixelWidth: Int, pixelHeight: Int)]) -> Result<String, String> {
-        var entries: [String] = []
-        for res in renderResolutions {
-            let entry = scaleEntry(pixelWidth: res.pixelWidth, pixelHeight: res.pixelHeight)
-            guard verifyEntry(entry, pixelWidth: res.pixelWidth, pixelHeight: res.pixelHeight) else {
-                return .failure("scale-resolutions 条目编码自检失败: \(res.pixelWidth)x\(res.pixelHeight)")
-            }
-            entries.append(entry)
-        }
-        var xml = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>DisplayProductID</key>
-            <integer>\(productID)</integer>
-            <key>DisplayVendorID</key>
-            <integer>\(vendorID)</integer>
-            <key>scale-resolutions</key>
-            <array>
-        """
-        for entry in entries {
-            xml += "        <data>\(entry)</data>\n"
-        }
-        xml += """
-            </array>
-        </dict>
-        </plist>
-        """
-        return .success(xml)
-    }
 }

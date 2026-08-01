@@ -135,4 +135,40 @@ final class OverrideBuilderTests: XCTestCase {
             return XCTFail("malformed plist must be invalid")
         }
     }
+
+    func testActivationRequiresBothRequestedExactHiDPIModes() {
+        let mode1080 = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 3840, pixelHeight: 2160,
+            refreshRate: 60, isHiDPI: true, isCurrent: false
+        )
+        let mode1440 = ModeEntry(
+            logicalWidth: 2560, logicalHeight: 1440,
+            pixelWidth: 5120, pixelHeight: 2880,
+            refreshRate: 60, isHiDPI: true, isCurrent: false
+        )
+
+        XCTAssertFalse(OverrideBuilder.activationModesPresent(in: [mode1080]))
+        XCTAssertFalse(OverrideBuilder.activationModesPresent(in: [mode1440]))
+        XCTAssertTrue(
+            OverrideBuilder.activationModesPresent(in: [mode1080, mode1440])
+        )
+
+        let wrong1080Render = ModeEntry(
+            logicalWidth: 1920, logicalHeight: 1080,
+            pixelWidth: 1920, pixelHeight: 1080,
+            refreshRate: 60, isHiDPI: false, isCurrent: false
+        )
+        let wrongFiveKLogical = ModeEntry(
+            logicalWidth: 2880, logicalHeight: 1620,
+            pixelWidth: 5120, pixelHeight: 2880,
+            refreshRate: 60, isHiDPI: true, isCurrent: false
+        )
+        XCTAssertFalse(
+            OverrideBuilder.activationModesPresent(in: [wrong1080Render, mode1440])
+        )
+        XCTAssertFalse(
+            OverrideBuilder.activationModesPresent(in: [mode1080, wrongFiveKLogical])
+        )
+    }
 }

@@ -13,7 +13,7 @@ final class AppModel {
     var statusMessage = ""
     var statusIsError = false
     var isBusy = false
-    var overrideInstalled = false
+    var overrideConfigurationState: OverrideConfigurationState = .missing
     var overridePending = false
     var linkPatched = false
 
@@ -56,7 +56,7 @@ final class AppModel {
         let displays = DisplayManager.activeDisplays()
         externalDisplay = displays.first { !$0.isBuiltin }
         modes = externalDisplay.map { DisplayManager.modeEntries(for: $0.id) } ?? []
-        overrideInstalled = OverrideInstaller.isInstalled()
+        overrideConfigurationState = OverrideInstaller.configurationState()
         linkPatched = LinkDescriptionPatcher.isPatched()
         if let display = externalDisplay, DisplayManager.isMirrored(display.id) {
             setStatus("警告：外接屏处于镜像模式，切换可能牵动整组显示器", error: true)
@@ -77,7 +77,7 @@ final class AppModel {
         }
         guard !isBusy else { return }
         guard let mode = presetMode(preset) else {
-            setStatus("「\(preset.title)」尚未解锁——先点下方「解锁中档 HiDPI」", error: true)
+            setStatus("「\(preset.title)」尚未解锁——先解锁或更新 HiDPI 配置", error: true)
             return
         }
         switchMode(mode, displayID: display.id)
@@ -119,34 +119,66 @@ final class AppModel {
         }
     }
 
-    // MARK: - 解锁中档 HiDPI（B1）
+    // MARK: - HiDPI 配置（B1）
 
-    private let renderResolutions: [(pixelWidth: Int, pixelHeight: Int)] = [
-        (3840, 2160),   // 1920×1080 @2x（标准尺寸，布局与 1x 1080p 一致）
-        (2880, 1620),   // 1440×810 @2x
-        (3200, 1800),   // 1600×900 @2x
-    ]
-
-    func installOverride() {
+    func installOrUpdateOverride() {
         guard !isBusy else { return }
-        switch OverrideBuilder.buildPlist(renderResolutions: renderResolutions) {
+
+        let existingData: Data?
+        switch OverrideInstaller.existingData() {
         case .failure(let message):
             setStatus(message, error: true)
-        case .success(let xml):
-            isBusy = true
-            setStatus("请在弹窗中输入管理员密码以写入解锁配置…", error: false)
-            Task {
-                let result = await OverrideInstaller.install(plistXML: xml)
-                isBusy = false
-                switch result {
-                case .failure(let message):
-                    setStatus("写入失败：\(message)", error: true)
-                case .success:
-                    overrideInstalled = true
-                    overridePending = true
-                    setStatus("已写入 ✓ 正在等待新模式生效…", error: false)
-                    await pollForNewModes()
+            return
+        case .success(let data):
+            existingData = data
+        }
+
+        let freshState: OverrideConfigurationState
+        if let existingData {
+            freshState = OverrideBuilder.configurationState(for: existingData)
+        } else {
+            freshState = .missing
+        }
+        switch freshState {
+        case .current:
+            overrideConfigurationState = .current
+            setStatus("HiDPI 配置已是最新", error: false)
+            return
+        case .invalid(let reason):
+            overrideConfigurationState = .invalid(reason)
+            setStatus("配置无法安全更新：\(reason)", error: true)
+            return
+        case .missing, .outdated:
+            break
+        }
+
+        let xml: String
+        switch OverrideBuilder.buildManagedPlist(existingData: existingData) {
+        case .failure(let message):
+            setStatus(message, error: true)
+            return
+        case .success(let generated):
+            xml = generated
+        }
+
+        isBusy = true
+        setStatus("请在弹窗中输入管理员密码以写入 HiDPI 配置…", error: false)
+        Task {
+            let result = await OverrideInstaller.install(plistXML: xml)
+            isBusy = false
+            switch result {
+            case .failure(let message):
+                setStatus("写入失败：\(message)", error: true)
+            case .success:
+                let installedState = OverrideInstaller.configurationState()
+                overrideConfigurationState = installedState
+                guard installedState == .current else {
+                    setStatus("写入后校验失败：配置未达到最新状态", error: true)
+                    return
                 }
+                overridePending = true
+                setStatus("配置已写入 ✓ 正在等待目标模式生效…", error: false)
+                await pollForNewModes()
             }
         }
     }
@@ -162,7 +194,7 @@ final class AppModel {
             case .failure(let message):
                 setStatus("移除失败：\(message)", error: true)
             case .success:
-                overrideInstalled = false
+                overrideConfigurationState = .missing
                 overridePending = false
                 setStatus("已移除 ✓ 新模式会在重插线缆或重启后消失", error: false)
             }
@@ -173,15 +205,17 @@ final class AppModel {
     /// 写入后轮询新模式：每 3s → 30s；然后让显示器休眠唤醒重握手 → 2 分钟；仍未生效提示重插/重启
     private func pollForNewModes() async {
         guard let display = externalDisplay else { return }
-        let targets: Set<String> = ["3840x2160", "2880x1620", "3200x1800"]
-        func hasNewModes() -> Bool {
-            let px = DisplayManager.modeEntries(for: display.id).map { "\($0.pixelWidth)x\($0.pixelHeight)" }
-            return !Set(px).isDisjoint(with: targets)
+        func hasRequiredModes() -> Bool {
+            OverrideBuilder.activationModesPresent(
+                in: DisplayManager.modeEntries(for: display.id)
+            )
         }
         for _ in 0..<10 {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if hasNewModes() {
-                finishPolling(message: "新模式已出现 ✓ 现在可以直接切换「均衡」或「更多空间」")
+            if hasRequiredModes() {
+                finishPolling(
+                    message: "1920×1080 与 2560×1440 HiDPI 已出现 ✓ 请在「其他可用模式」中选择"
+                )
                 return
             }
         }
@@ -192,8 +226,10 @@ final class AppModel {
         try? pmset.run()
         for _ in 0..<40 {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if hasNewModes() {
-                finishPolling(message: "新模式已出现 ✓（显示器重握手后生效）现在可以直接切换「均衡」或「更多空间」")
+            if hasRequiredModes() {
+                finishPolling(
+                    message: "1920×1080 与 2560×1440 HiDPI 已出现 ✓（显示器重握手后生效）"
+                )
                 return
             }
             if CGDisplayIsAsleep(display.id) == 0 {
@@ -201,7 +237,7 @@ final class AppModel {
             }
         }
         finishPolling(
-            message: "仍未生效：请拔下 HDMI 线再插回（数秒内生效）；若仍不行请重启 Mac",
+            message: "配置已写入，但一个或两个目标 HiDPI 模式尚未出现：请重插 HDMI；若仍不行请重启 Mac",
             pending: true
         )
     }

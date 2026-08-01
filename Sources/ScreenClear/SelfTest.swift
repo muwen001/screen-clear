@@ -32,24 +32,33 @@ enum SelfTest {
 
         // 3. scale-resolutions 编码自检
         lines.append("== OverrideBuilder ==")
-        let cases: [(Int, Int, String)] = [
-            (2880, 1620, "AAALQAAABlQA"),
-            (3200, 1800, "AAAMgAAABwgA"),
-        ]
         var builderOK = true
-        for (w, h, expected) in cases {
-            let entry = OverrideBuilder.scaleEntry(pixelWidth: w, pixelHeight: h)
-            let roundTrip = OverrideBuilder.verifyEntry(entry, pixelWidth: w, pixelHeight: h)
-            let match = entry == expected
-            lines.append("  \(w)x\(h): \(entry) 期望=\(expected) 往返自检=\(roundTrip) 匹配=\(match)")
-            if !(roundTrip && match) { builderOK = false }
+        for mode in OverrideBuilder.managedModes {
+            let entry = OverrideBuilder.scaleEntry(
+                pixelWidth: mode.pixelWidth,
+                pixelHeight: mode.pixelHeight
+            )
+            let roundTrip = OverrideBuilder.verifyEntry(
+                entry,
+                pixelWidth: mode.pixelWidth,
+                pixelHeight: mode.pixelHeight
+            )
+            let knownFiveKMatches = mode.pixelWidth != 5120
+                || mode.pixelHeight != 2880
+                || entry == "AAAUAAAAC0AA"
+            lines.append(
+                "  \(mode.logicalWidth)x\(mode.logicalHeight) @2x -> "
+                    + "\(mode.pixelWidth)x\(mode.pixelHeight): "
+                    + "往返=\(roundTrip) 已知值=\(knownFiveKMatches)"
+            )
+            if !(roundTrip && knownFiveKMatches) { builderOK = false }
         }
         if builderOK {
-            switch OverrideBuilder.buildPlist(renderResolutions: [(2880, 1620), (3200, 1800)]) {
+            switch OverrideBuilder.buildManagedPlist(existingData: nil) {
             case .success(let xml):
-                lines.append("  buildPlist OK，\(xml.count) 字符")
+                lines.append("  buildManagedPlist OK，\(xml.count) 字符")
             case .failure(let message):
-                lines.append("  buildPlist FAIL: \(message)")
+                lines.append("  buildManagedPlist FAIL: \(message)")
                 builderOK = false
             }
         }

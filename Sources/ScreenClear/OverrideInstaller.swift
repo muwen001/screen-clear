@@ -3,10 +3,6 @@ import Foundation
 /// 通过 osascript 管理员授权安装/移除 /Library/Displays override 文件。
 /// 无签名 app 在 macOS 13+ 上无法使用 SMAppService，osascript 是可行路径。
 enum OverrideInstaller {
-    static func isInstalled() -> Bool {
-        FileManager.default.fileExists(atPath: OverrideBuilder.targetFile)
-    }
-
     static func configurationState(
         atPath path: String = OverrideBuilder.targetFile
     ) -> OverrideConfigurationState {

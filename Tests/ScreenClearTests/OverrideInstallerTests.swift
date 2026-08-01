@@ -28,10 +28,19 @@ final class OverrideInstallerTests: XCTestCase {
             .missing
         )
 
-        let oldXML = try OverrideBuilder.buildPlist(
-            renderResolutions: [(2880, 1620), (3200, 1800)]
-        ).get()
-        try oldXML.write(to: target, atomically: true, encoding: .utf8)
+        let oldData = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "DisplayVendorID": OverrideBuilder.vendorID,
+                "DisplayProductID": OverrideBuilder.productID,
+                "scale-resolutions": [
+                    OverrideBuilder.scaleEntryData(pixelWidth: 2880, pixelHeight: 1620),
+                    OverrideBuilder.scaleEntryData(pixelWidth: 3200, pixelHeight: 1800),
+                ],
+            ],
+            format: .xml,
+            options: 0
+        )
+        try oldData.write(to: target)
         XCTAssertEqual(
             OverrideInstaller.configurationState(atPath: target.path),
             .outdated
