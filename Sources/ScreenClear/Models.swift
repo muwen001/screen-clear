@@ -22,7 +22,9 @@ struct DisplayInfo: Identifiable, Sendable {
 
 /// 单个显示模式（逻辑分辨率 + 渲染像素）
 struct ModeEntry: Identifiable, Sendable {
-    var id: String { "\(pixelWidth)x\(pixelHeight)@\(Int(refreshRate))x\(isHiDPI ? "2" : "1")" }
+    var id: String {
+        "\(logicalWidth)x\(logicalHeight):\(pixelWidth)x\(pixelHeight)@\(Int(refreshRate))x\(isHiDPI ? "2" : "1")"
+    }
     let logicalWidth: Int
     let logicalHeight: Int
     let pixelWidth: Int
@@ -30,4 +32,15 @@ struct ModeEntry: Identifiable, Sendable {
     let refreshRate: Double
     let isHiDPI: Bool
     let isCurrent: Bool
+
+    func matchesConfiguration(
+        of other: ModeEntry,
+        refreshRateTolerance: Double = 0.1
+    ) -> Bool {
+        logicalWidth == other.logicalWidth
+            && logicalHeight == other.logicalHeight
+            && pixelWidth == other.pixelWidth
+            && pixelHeight == other.pixelHeight
+            && abs(refreshRate - other.refreshRate) < refreshRateTolerance
+    }
 }

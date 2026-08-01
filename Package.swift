@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "ScreenClear",
             path: "Sources/ScreenClear"
+        ),
+        .testTarget(
+            name: "ScreenClearTests",
+            dependencies: ["ScreenClear"],
+            path: "Tests/ScreenClearTests"
         )
     ]
 )

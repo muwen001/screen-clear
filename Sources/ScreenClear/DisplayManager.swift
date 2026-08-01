@@ -56,41 +56,22 @@ enum DisplayManager {
 
     static func modeEntries(for displayID: CGDirectDisplayID) -> [ModeEntry] {
         let current = CGDisplayCopyDisplayMode(displayID)
+        let currentEntry = current.map { entry(for: $0, isCurrent: true) }
         var seen = Set<String>()
         var entries: [ModeEntry] = []
         for mode in allModes(for: displayID) {
-            let w = Int(mode.width), h = Int(mode.height)
-            let pw = Int(mode.pixelWidth), ph = Int(mode.pixelHeight)
-            let entry = ModeEntry(
-                logicalWidth: w,
-                logicalHeight: h,
-                pixelWidth: pw,
-                pixelHeight: ph,
-                refreshRate: mode.refreshRate,
-                isHiDPI: pw != w,
-                isCurrent: false
-            )
+            let candidate = entry(for: mode)
             // 去重：同一 (逻辑尺寸, 渲染尺寸, 刷新率, HiDPI) 只保留一条
-            guard seen.insert(entry.id).inserted else { continue }
-            let isCurrent: Bool
-            if let current {
-                // 当前模式判定需同时匹配逻辑尺寸与渲染尺寸（否则 1x/2x 同像素模式会同时命中）
-                isCurrent = Int(current.width) == w
-                    && Int(current.height) == h
-                    && Int(current.pixelWidth) == pw
-                    && Int(current.pixelHeight) == ph
-                    && abs(current.refreshRate - mode.refreshRate) < 0.1
-            } else {
-                isCurrent = false
-            }
+            guard seen.insert(candidate.id).inserted else { continue }
+            let isCurrent = currentEntry?.matchesConfiguration(of: candidate) == true
             entries.append(
                 ModeEntry(
-                    logicalWidth: w,
-                    logicalHeight: h,
-                    pixelWidth: pw,
-                    pixelHeight: ph,
-                    refreshRate: mode.refreshRate,
-                    isHiDPI: pw != w,
+                    logicalWidth: candidate.logicalWidth,
+                    logicalHeight: candidate.logicalHeight,
+                    pixelWidth: candidate.pixelWidth,
+                    pixelHeight: candidate.pixelHeight,
+                    refreshRate: candidate.refreshRate,
+                    isHiDPI: candidate.isHiDPI,
                     isCurrent: isCurrent
                 )
             )
@@ -132,11 +113,7 @@ enum DisplayManager {
     static func apply(mode: ModeEntry, on displayID: CGDirectDisplayID) async -> SwitchResult {
         // 匹配需同时比对逻辑尺寸与渲染尺寸：1x/2x 模式渲染像素可能相同（如 960×540@2x 与 1920×1080@1x）
         guard let target = allModes(for: displayID).first(where: {
-            Int($0.width) == mode.logicalWidth
-                && Int($0.height) == mode.logicalHeight
-                && Int($0.pixelWidth) == mode.pixelWidth
-                && Int($0.pixelHeight) == mode.pixelHeight
-                && abs($0.refreshRate - mode.refreshRate) < 0.5
+            mode.matchesConfiguration(of: entry(for: $0), refreshRateTolerance: 0.5)
         }) else {
             return .failed("目标模式已失效，请重新打开菜单刷新")
         }
@@ -203,6 +180,18 @@ enum DisplayManager {
 
     private static func matches(_ target: CGDisplayMode, on displayID: CGDirectDisplayID) -> Bool {
         guard let current = CGDisplayCopyDisplayMode(displayID) else { return false }
-        return current.pixelWidth == target.pixelWidth && current.pixelHeight == target.pixelHeight
+        return entry(for: target).matchesConfiguration(of: entry(for: current))
+    }
+
+    private static func entry(for mode: CGDisplayMode, isCurrent: Bool = false) -> ModeEntry {
+        ModeEntry(
+            logicalWidth: Int(mode.width),
+            logicalHeight: Int(mode.height),
+            pixelWidth: Int(mode.pixelWidth),
+            pixelHeight: Int(mode.pixelHeight),
+            refreshRate: mode.refreshRate,
+            isHiDPI: mode.pixelWidth != mode.width,
+            isCurrent: isCurrent
+        )
     }
 }
