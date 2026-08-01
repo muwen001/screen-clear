@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import SwiftUI
 
 @MainActor
@@ -14,6 +15,7 @@ enum MenuBarIcon {
               values.isRegularFile == true,
               values.isSymbolicLink != true,
               (values.fileSize ?? 0) > 0,
+              hasPDFHeader(at: url),
               let image = NSImage(contentsOf: url),
               image.size.width > 0,
               image.size.height > 0 else {
@@ -21,6 +23,14 @@ enum MenuBarIcon {
         }
         image.isTemplate = true
         return image
+    }
+
+    private static func hasPDFHeader(at url: URL) -> Bool {
+        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+            return false
+        }
+        defer { try? fileHandle.close() }
+        return fileHandle.readData(ofLength: 5) == Data("%PDF-".utf8)
     }
 
     static func image(bundle: Bundle = .main) -> NSImage? {
