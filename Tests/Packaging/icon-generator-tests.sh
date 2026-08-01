@@ -24,6 +24,19 @@ grep -q 'usage:' "$test_root/usage.out"
 
 output_root="$test_root/output"
 mkdir -p "$output_root"
+
+set +e
+SCREENCLEAR_ICON_TEST_FAIL_AFTER_STAGING=1 /usr/bin/xcrun swift "$generator" "$output_root" >"$test_root/staging-failure.out" 2>&1
+staging_failure_status=$?
+set -e
+test "$staging_failure_status" -ne 0
+test ! -e "$output_root/ScreenClear.iconset"
+test ! -L "$output_root/ScreenClear.iconset"
+test ! -e "$output_root/ScreenClear.icns"
+test ! -L "$output_root/ScreenClear.icns"
+test ! -e "$output_root/MenuBarIcon.pdf"
+test ! -L "$output_root/MenuBarIcon.pdf"
+
 /usr/bin/xcrun swift "$generator" "$output_root"
 
 while IFS=: read -r name width height; do

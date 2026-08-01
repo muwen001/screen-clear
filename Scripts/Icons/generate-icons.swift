@@ -10,6 +10,7 @@ enum GeneratorError: LocalizedError {
     case png(Int)
     case pdf
     case iconutil(Int32)
+    case injectedFailure
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,7 @@ enum GeneratorError: LocalizedError {
         case .png(let size): return "cannot encode \(size)x\(size) PNG"
         case .pdf: return "cannot create menu-bar PDF"
         case .iconutil(let status): return "iconutil failed with status \(status)"
+        case .injectedFailure: return "test failure after staging"
         }
     }
 }
@@ -188,6 +190,33 @@ func runIconutil(iconset: URL, output: URL) throws {
     }
 }
 
+func exists(_ url: URL, manager: FileManager) -> Bool {
+    (try? manager.attributesOfItem(atPath: url.path)) != nil
+}
+
+func publish(_ stagedTargets: [(staged: URL, destination: URL)], manager: FileManager) throws {
+    var published: [URL] = []
+    do {
+        for target in stagedTargets {
+            guard !exists(target.destination, manager: manager) else {
+                throw GeneratorError.outputExists(target.destination.path)
+            }
+            try manager.moveItem(at: target.staged, to: target.destination)
+            published.append(target.destination)
+        }
+    } catch {
+        let publishError = error
+        do {
+            for target in published.reversed() {
+                try manager.removeItem(at: target)
+            }
+        } catch {
+            throw error
+        }
+        throw publishError
+    }
+}
+
 guard CommandLine.arguments.count == 2 else {
     fputs("usage: generate-icons.swift OUTPUT_DIRECTORY\n", stderr)
     exit(64)
@@ -203,12 +232,23 @@ do {
     let iconset = output.appendingPathComponent("ScreenClear.iconset", isDirectory: true)
     let icns = output.appendingPathComponent("ScreenClear.icns")
     let menuPDF = output.appendingPathComponent("MenuBarIcon.pdf")
-    for target in [iconset, icns, menuPDF] where manager.fileExists(atPath: target.path) {
+    for target in [iconset, icns, menuPDF] where exists(target, manager: manager) {
         throw GeneratorError.outputExists(target.path)
     }
-    try manager.createDirectory(at: iconset, withIntermediateDirectories: false)
+    let staging = output.appendingPathComponent(
+        ".screenclear-icon-staging-\(UUID().uuidString)",
+        isDirectory: true
+    )
+    try manager.createDirectory(at: staging, withIntermediateDirectories: false)
+    defer {
+        try? manager.removeItem(at: staging)
+    }
+    let stagedIconset = staging.appendingPathComponent("ScreenClear.iconset", isDirectory: true)
+    let stagedICNS = staging.appendingPathComponent("ScreenClear.icns")
+    let stagedMenuPDF = staging.appendingPathComponent("MenuBarIcon.pdf")
+    try manager.createDirectory(at: stagedIconset, withIntermediateDirectories: false)
     for variant in variants {
-        let imageURL = iconset.appendingPathComponent(variant.name)
+        let imageURL = stagedIconset.appendingPathComponent(variant.name)
         try pngData(pixels: variant.pixels).write(
             to: imageURL,
             options: .withoutOverwriting
@@ -220,16 +260,24 @@ do {
             throw GeneratorError.png(variant.pixels)
         }
     }
-    try writeMenuBarPDF(to: menuPDF)
-    guard let menuImage = NSImage(contentsOf: menuPDF),
+    try writeMenuBarPDF(to: stagedMenuPDF)
+    guard let menuImage = NSImage(contentsOf: stagedMenuPDF),
           menuImage.size.width > 0,
           menuImage.size.height > 0 else {
         throw GeneratorError.pdf
     }
-    try runIconutil(iconset: iconset, output: icns)
-    guard manager.fileExists(atPath: icns.path), manager.fileExists(atPath: menuPDF.path) else {
+    try runIconutil(iconset: stagedIconset, output: stagedICNS)
+    guard manager.fileExists(atPath: stagedICNS.path), manager.fileExists(atPath: stagedMenuPDF.path) else {
         throw GeneratorError.invalidOutput(output.path)
     }
+    if ProcessInfo.processInfo.environment["SCREENCLEAR_ICON_TEST_FAIL_AFTER_STAGING"] == "1" {
+        throw GeneratorError.injectedFailure
+    }
+    try publish([
+        (staged: stagedIconset, destination: iconset),
+        (staged: stagedICNS, destination: icns),
+        (staged: stagedMenuPDF, destination: menuPDF),
+    ], manager: manager)
 } catch {
     fputs("generate-icons: \(error.localizedDescription)\n", stderr)
     exit(1)
