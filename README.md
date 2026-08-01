@@ -69,4 +69,4 @@ Sources/ScreenClear/
 
 - 中档 HiDPI（均衡/更多空间）为降采样渲染（渲染像素 > 面板原生），锐度略低于点对点，属预期权衡。
 - 颜色修复重启后可能被 macOS 覆盖（Ventura 13.3+ 行为），可重写或使用 BetterDisplay 的 Force RGB / 配置保护。
-- 无签名 app：本机自用；发给别人需开发者签名/公证。
+- 应用采用 ad-hoc 签名，仅用于本机运行；分发给其他 Mac 仍需 Developer ID 签名和公证。
