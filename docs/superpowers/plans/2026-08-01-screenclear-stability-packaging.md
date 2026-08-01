@@ -893,7 +893,7 @@ Check that generated artifacts are ignored and source history is clean:
 ~~~bash
 git status --short --ignored
 git check-ignore .build ScreenClear.app dist/ScreenClear-macos-arm64.zip
-git push origin main
+git push -u origin feature/stability-packaging
 ~~~
 
-Report the commit range, modified source paths, app/ZIP sizes, install path, signature type, and verification results.
+Report the commit range, modified source paths, app/ZIP sizes, install path, signature type, and verification results. Merge and push `main` only through the finishing-development-branch workflow after final review.
