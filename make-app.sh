@@ -19,6 +19,7 @@ if [[ "$#" -eq 1 ]]; then
 fi
 
 . "$project_root/Scripts/Packaging/install-lifecycle.sh"
+. "$project_root/Scripts/Packaging/bundle-metadata.sh"
 
 app_name="ScreenClear.app"
 bundle_id="local.screenclear"
@@ -265,11 +266,12 @@ install_app() {
     }
 
     validate_new_install() {
-        local installed_id
-        local minimum_system
-        local icon_file
+        local packaged_info="$project_app/Contents/Info.plist"
+        local installed_info="$install_target/Contents/Info.plist"
         local packaged_hash
         local installed_hash
+        local packaged_info_hash
+        local installed_info_hash
         local relative_resource
         local packaged_resource
         local installed_resource
@@ -279,14 +281,7 @@ install_app() {
 
         [[ -d "$install_target" && ! -L "$install_target" ]] || return 1
         [[ -x "$installed_executable" && ! -L "$installed_executable" ]] || return 1
-        installed_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
-            "$install_target/Contents/Info.plist" 2>/dev/null || true)
-        minimum_system=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
-            "$install_target/Contents/Info.plist" 2>/dev/null || true)
-        icon_file=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' \
-            "$install_target/Contents/Info.plist" 2>/dev/null || true)
-        [[ "$installed_id" = "$bundle_id" && "$minimum_system" = "14.0" &&
-           "$icon_file" = "ScreenClear" ]] || return 1
+        screenclear_verify_bundle_metadata "$installed_info" || return 1
         codesign --verify --deep --strict --verbose=2 "$install_target" || return 1
         details=$(codesign -dv --verbose=4 "$install_target" 2>&1) || return 1
         printf '%s\n' "$details" | grep -q '^Identifier=local.screenclear$' || return 1
@@ -295,6 +290,11 @@ install_app() {
         packaged_hash=$(shasum -a 256 "$project_app/Contents/MacOS/ScreenClear" | awk '{print $1}')
         installed_hash=$(shasum -a 256 "$installed_executable" | awk '{print $1}')
         [[ "$packaged_hash" = "$installed_hash" ]] || return 1
+        [[ -f "$packaged_info" && ! -L "$packaged_info" ]] || return 1
+        [[ -f "$installed_info" && ! -L "$installed_info" ]] || return 1
+        packaged_info_hash=$(shasum -a 256 "$packaged_info" | awk '{print $1}')
+        installed_info_hash=$(shasum -a 256 "$installed_info" | awk '{print $1}')
+        [[ "$packaged_info_hash" = "$installed_info_hash" ]] || return 1
         for relative_resource in ScreenClear.icns MenuBarIcon.pdf; do
             packaged_resource="$project_app/Contents/Resources/$relative_resource"
             installed_resource="$install_target/Contents/Resources/$relative_resource"
@@ -481,6 +481,7 @@ cat > "$staged_app/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 plutil -lint "$staged_app/Contents/Info.plist"
+screenclear_verify_bundle_metadata "$staged_app/Contents/Info.plist"
 codesign --force --deep --sign - --timestamp=none "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"
 

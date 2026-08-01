@@ -17,8 +17,9 @@ cleanup() {
 trap cleanup EXIT
 
 assert_rejected() {
-    local zip_path="$1"
-    if "$verifier" "$source_app" "$zip_path" >"$test_root/verifier.out" 2>&1; then
+    local app_path="$1"
+    local zip_path="$2"
+    if "$verifier" "$app_path" "$zip_path" >"$test_root/verifier.out" 2>&1; then
         printf 'verifier unexpectedly accepted %s\n' "$zip_path" >&2
         exit 1
     fi
@@ -43,7 +44,7 @@ old_pipeline_status=0
 unzip -Z1 "$appledouble_zip" | grep -Eq '(^|/)\._|^__MACOSX/' ||
     old_pipeline_status=$?
 test "$old_pipeline_status" -eq 141
-assert_rejected "$appledouble_zip"
+assert_rejected "$source_app" "$appledouble_zip"
 if ! grep -Fxq 'archive contains unexpected AppleDouble metadata' \
     "$test_root/verifier.out"; then
     printf 'verifier did not report the AppleDouble-specific rejection\n' >&2
@@ -56,7 +57,7 @@ mkdir -p "$extra_root"
 ditto "$source_app" "$extra_root/ScreenClear.app"
 printf 'unexpected\n' > "$extra_root/unexpected.txt"
 ditto -c -k --norsrc "$extra_root" "$test_root/extra.zip"
-assert_rejected "$test_root/extra.zip"
+assert_rejected "$source_app" "$test_root/extra.zip"
 
 mismatch_root="$test_root/mismatch"
 mkdir -p "$mismatch_root"
@@ -66,7 +67,7 @@ chmod 755 "$mismatch_root/ScreenClear.app/Contents/MacOS/ScreenClear"
 codesign --force --deep --sign - --timestamp=none "$mismatch_root/ScreenClear.app" >/dev/null
 ditto -c -k --norsrc --keepParent \
     "$mismatch_root/ScreenClear.app" "$test_root/mismatch.zip"
-assert_rejected "$test_root/mismatch.zip"
+assert_rejected "$source_app" "$test_root/mismatch.zip"
 
 resource_mismatch_root="$test_root/resource-mismatch"
 mkdir -p "$resource_mismatch_root"
@@ -76,6 +77,17 @@ codesign --force --deep --sign - --timestamp=none \
     "$resource_mismatch_root/ScreenClear.app" >/dev/null
 ditto -c -k --norsrc --keepParent \
     "$resource_mismatch_root/ScreenClear.app" "$test_root/resource-mismatch.zip"
-assert_rejected "$test_root/resource-mismatch.zip"
+assert_rejected "$source_app" "$test_root/resource-mismatch.zip"
+
+metadata_mismatch_root="$test_root/metadata-mismatch"
+mkdir -p "$metadata_mismatch_root"
+ditto "$source_app" "$metadata_mismatch_root/ScreenClear.app"
+/usr/libexec/PlistBuddy -c 'Set :LSUIElement false' \
+    "$metadata_mismatch_root/ScreenClear.app/Contents/Info.plist"
+codesign --force --deep --sign - --timestamp=none \
+    "$metadata_mismatch_root/ScreenClear.app" >/dev/null
+ditto -c -k --norsrc --keepParent \
+    "$metadata_mismatch_root/ScreenClear.app" "$test_root/metadata-mismatch.zip"
+assert_rejected "$metadata_mismatch_root/ScreenClear.app" "$test_root/metadata-mismatch.zip"
 
 printf 'archive verifier rejection tests passed\n'

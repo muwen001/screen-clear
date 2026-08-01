@@ -7,7 +7,7 @@ case_name="${1:-all}"
 
 if [[ "$case_name" = all ]]; then
     status=0
-    for test_case in identity zip-rollback signature-rollback; do
+    for test_case in identity metadata-preflight zip-rollback signature-rollback; do
         if "$script_path" "$test_case"; then
             printf 'PASS: %s\n' "$test_case"
         else
@@ -18,8 +18,8 @@ if [[ "$case_name" = all ]]; then
 fi
 
 case "$case_name" in
-    identity|zip-rollback|signature-rollback) ;;
-    *) printf '用法: %s [all|identity|zip-rollback|signature-rollback]\n' "$0" >&2; exit 64 ;;
+    identity|metadata-preflight|zip-rollback|signature-rollback) ;;
+    *) printf '用法: %s [all|identity|metadata-preflight|zip-rollback|signature-rollback]\n' "$0" >&2; exit 64 ;;
 esac
 
 swift build -c release >/dev/null
@@ -48,11 +48,14 @@ mkdir -p "$case_root/.build/release" \
 cp "$project_root/make-app.sh" "$case_root/make-app.sh"
 cp "$project_root/Scripts/Packaging/install-lifecycle.sh" \
     "$case_root/Scripts/Packaging/install-lifecycle.sh"
+cp "$project_root/Scripts/Packaging/bundle-metadata.sh" \
+    "$case_root/Scripts/Packaging/bundle-metadata.sh"
 cp "$project_root/Scripts/Icons/generate-icons.swift" \
     "$case_root/Scripts/Icons/generate-icons.swift"
 cp "$release_binary" "$case_root/.build/release/ScreenClear"
 chmod 755 "$case_root/make-app.sh" \
     "$case_root/Scripts/Packaging/install-lifecycle.sh" \
+    "$case_root/Scripts/Packaging/bundle-metadata.sh" \
     "$case_root/.build/release/ScreenClear"
 
 cat > "$shim_dir/swift" <<'SHIM'
@@ -98,7 +101,19 @@ fi
 exec /usr/bin/codesign "$@"
 SHIM
 
-chmod 755 "$shim_dir/swift" "$shim_dir/mv" "$shim_dir/codesign"
+cat > "$shim_dir/plutil" <<'SHIM'
+#!/bin/bash
+set -euo pipefail
+args=("$@")
+target_path=${args[$((${#args[@]} - 1))]}
+if [[ "${SCREENCLEAR_MUTATE_STAGED_METADATA:-}" = true &&
+      "$target_path" = */screenclear-build.*/ScreenClear.app/Contents/Info.plist ]]; then
+    /usr/libexec/PlistBuddy -c 'Set :LSUIElement false' "$target_path"
+fi
+exec /usr/bin/plutil "$@"
+SHIM
+
+chmod 755 "$shim_dir/swift" "$shim_dir/mv" "$shim_dir/codesign" "$shim_dir/plutil"
 
 PATH="$shim_dir:$PATH" SCREENCLEAR_TEST_ROOT="$case_root" "$case_root/make-app.sh" >/dev/null
 
@@ -139,6 +154,14 @@ case "$case_name" in
         fi
         test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             "$case_root/ScreenClear.app/Contents/Info.plist")" = com.example.foreign
+        assert_previous_outputs
+        ;;
+    metadata-preflight)
+        if SCREENCLEAR_MUTATE_STAGED_METADATA=true PATH="$shim_dir:$PATH" \
+            SCREENCLEAR_TEST_ROOT="$case_root" "$case_root/make-app.sh" >/dev/null 2>&1; then
+            printf 'FAIL: metadata-mutated staged bundle was published\n' >&2
+            exit 1
+        fi
         assert_previous_outputs
         ;;
     zip-rollback)

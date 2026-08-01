@@ -6,6 +6,9 @@ if [[ "$#" -ne 2 ]]; then
     exit 64
 fi
 
+project_root=$(cd "$(dirname "$0")/../.." && pwd -P)
+. "$project_root/Scripts/Packaging/bundle-metadata.sh"
+
 app_path="$1"
 zip_path="$2"
 extract_root=""
@@ -30,7 +33,7 @@ verify_bundle() {
 
     test -d "$bundle_path"
     test ! -L "$bundle_path"
-    test -f "$info"
+    screenclear_verify_bundle_metadata "$info"
     test -x "$executable"
     test ! -L "$executable"
     test -f "$icon"
@@ -39,12 +42,6 @@ verify_bundle() {
     test -f "$menu_icon"
     test ! -L "$menu_icon"
     test -s "$menu_icon"
-    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info")" = \
-        "local.screenclear"
-    test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$info")" = \
-        "14.0"
-    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$info")" = \
-        "ScreenClear"
     /usr/bin/file "$icon" | grep -q 'Mac OS X icon'
     /usr/bin/file "$menu_icon" | grep -q 'PDF document'
 
@@ -79,6 +76,7 @@ fi
 
 verify_bundle "$archived_app"
 for relative_path in \
+    Contents/Info.plist \
     Contents/MacOS/ScreenClear \
     Contents/Resources/ScreenClear.icns \
     Contents/Resources/MenuBarIcon.pdf; do
