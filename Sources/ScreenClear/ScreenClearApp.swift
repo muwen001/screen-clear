@@ -24,9 +24,11 @@ struct ScreenClearApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("ScreenClear", systemImage: "display") {
+        MenuBarExtra {
             MenuContent()
                 .environment(model)
+        } label: {
+            MenuBarIconLabel()
         }
         .menuBarExtraStyle(.menu)
     }
