@@ -4,12 +4,19 @@
 1. **文字模糊**：当前跑在 1x 1080p（非 HiDPI 拉伸）
 2. **颜色发灰泛白**：M1 经 HDMI 输出 YCbCr 而非 RGB
 
-## 构建与运行
+## 测试、构建与安装
 
 ```bash
-./make-app.sh        # release 构建 + 生成 ScreenClear.app（无签名，本机自用）
-open ScreenClear.app
+swift test
+./make-app.sh
+./make-app.sh --install
 ```
+
+- `ScreenClear.app`
+- `dist/ScreenClear-macos-arm64.zip`
+- 使用 `--install` 时的 `/Applications/ScreenClear.app`
+
+自动测试不会切换模式或修改系统显示配置。应用采用 ad-hoc 签名，仅用于本机运行；其他 Mac 分发仍需 Developer ID 签名和公证。
 
 自检 / 命令行切换（开发用）：
 
@@ -18,6 +25,8 @@ swift run ScreenClear --selftest          # 只读自检
 .build/debug/ScreenClear --apply 2560x1440@2x   # 切换到 1280×720@2x（渲染 2560×1440 原生点对点）
 .build/debug/ScreenClear --apply 1920x1080      # 切回 1x 1080p
 ```
+
+自检会在临时目录保存其 fixture 和备份。
 
 ## 功能（菜单栏）
 
