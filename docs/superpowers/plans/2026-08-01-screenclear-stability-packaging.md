@@ -17,7 +17,7 @@
 - Use ad-hoc signing only; do not claim Developer ID signing, notarization, or distribution readiness.
 - Tests and installation must not switch modes, write display overrides, patch real LinkDescription data, or change LaunchAgents.
 - Install only to /Applications/ScreenClear.app after validating that exact path.
-- Commit each independently verified task to the initialized main branch.
+- Commit each independently verified task to `feature/stability-packaging`; integrate `main` only after final review.
 
 ---
 
