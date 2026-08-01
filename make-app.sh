@@ -29,6 +29,9 @@ install_target="/Applications/$app_name"
 stage_root=$(mktemp -d "${TMPDIR:-/tmp}/screenclear-build.XXXXXX")
 staged_app="$stage_root/$app_name"
 staged_zip="$stage_root/ScreenClear-macos-arm64.zip"
+icon_generator="$project_root/Scripts/Icons/generate-icons.swift"
+generated_resources="$stage_root/generated-resources"
+staged_resources="$staged_app/Contents/Resources"
 preserve_stage=false
 
 cleanup() {
@@ -264,8 +267,14 @@ install_app() {
     validate_new_install() {
         local installed_id
         local minimum_system
+        local icon_file
         local packaged_hash
         local installed_hash
+        local relative_resource
+        local packaged_resource
+        local installed_resource
+        local packaged_resource_hash
+        local installed_resource_hash
         local details
 
         [[ -d "$install_target" && ! -L "$install_target" ]] || return 1
@@ -274,7 +283,10 @@ install_app() {
             "$install_target/Contents/Info.plist" 2>/dev/null || true)
         minimum_system=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
             "$install_target/Contents/Info.plist" 2>/dev/null || true)
-        [[ "$installed_id" = "$bundle_id" && "$minimum_system" = "14.0" ]] || return 1
+        icon_file=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' \
+            "$install_target/Contents/Info.plist" 2>/dev/null || true)
+        [[ "$installed_id" = "$bundle_id" && "$minimum_system" = "14.0" &&
+           "$icon_file" = "ScreenClear" ]] || return 1
         codesign --verify --deep --strict --verbose=2 "$install_target" || return 1
         details=$(codesign -dv --verbose=4 "$install_target" 2>&1) || return 1
         printf '%s\n' "$details" | grep -q '^Identifier=local.screenclear$' || return 1
@@ -282,7 +294,16 @@ install_app() {
         file "$installed_executable" | grep -q 'Mach-O 64-bit executable arm64' || return 1
         packaged_hash=$(shasum -a 256 "$project_app/Contents/MacOS/ScreenClear" | awk '{print $1}')
         installed_hash=$(shasum -a 256 "$installed_executable" | awk '{print $1}')
-        [[ "$packaged_hash" = "$installed_hash" ]]
+        [[ "$packaged_hash" = "$installed_hash" ]] || return 1
+        for relative_resource in ScreenClear.icns MenuBarIcon.pdf; do
+            packaged_resource="$project_app/Contents/Resources/$relative_resource"
+            installed_resource="$install_target/Contents/Resources/$relative_resource"
+            [[ -f "$packaged_resource" && ! -L "$packaged_resource" && -s "$packaged_resource" ]] || return 1
+            [[ -f "$installed_resource" && ! -L "$installed_resource" && -s "$installed_resource" ]] || return 1
+            packaged_resource_hash=$(shasum -a 256 "$packaged_resource" | awk '{print $1}')
+            installed_resource_hash=$(shasum -a 256 "$installed_resource" | awk '{print $1}')
+            [[ "$packaged_resource_hash" = "$installed_resource_hash" ]] || return 1
+        done
     }
 
     remove_install_backup() {
@@ -419,9 +440,26 @@ install_app() {
 }
 
 swift build -c release
-mkdir -p "$staged_app/Contents/MacOS"
+[[ -f "$icon_generator" && ! -L "$icon_generator" ]] || {
+    printf '图标生成器缺失或不是普通文件: %s\n' "$icon_generator" >&2
+    exit 1
+}
+mkdir -p "$generated_resources"
+/usr/bin/xcrun swift "$icon_generator" "$generated_resources"
+
+mkdir -p "$staged_app/Contents/MacOS" "$staged_resources"
 cp .build/release/ScreenClear "$staged_app/Contents/MacOS/ScreenClear"
 chmod 755 "$staged_app/Contents/MacOS/ScreenClear"
+for resource_name in ScreenClear.icns MenuBarIcon.pdf; do
+    generated_resource="$generated_resources/$resource_name"
+    [[ -f "$generated_resource" && ! -L "$generated_resource" && -s "$generated_resource" ]] || {
+        printf '生成的图标资源无效: %s\n' "$generated_resource" >&2
+        exit 1
+    }
+    cp "$generated_resource" "$staged_resources/$resource_name"
+done
+/usr/bin/file "$staged_resources/ScreenClear.icns" | grep -q 'Mac OS X icon'
+/usr/bin/file "$staged_resources/MenuBarIcon.pdf" | grep -q 'PDF document'
 cat > "$staged_app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -435,6 +473,7 @@ cat > "$staged_app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleIconFile</key><string>ScreenClear</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
@@ -445,8 +484,12 @@ plutil -lint "$staged_app/Contents/Info.plist"
 codesign --force --deep --sign - --timestamp=none "$staged_app"
 codesign --verify --deep --strict --verbose=2 "$staged_app"
 
-ditto -c -k --sequesterRsrc --keepParent "$staged_app" "$staged_zip"
+ditto -c -k --norsrc --keepParent "$staged_app" "$staged_zip"
 unzip -tq "$staged_zip"
+if unzip -Z1 "$staged_zip" | grep -Eq '(^|/)\._|^__MACOSX/'; then
+    printf 'ZIP 包含意外 AppleDouble 元数据\n' >&2
+    exit 1
+fi
 
 publish_artifacts
 

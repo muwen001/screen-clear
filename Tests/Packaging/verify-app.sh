@@ -24,6 +24,8 @@ verify_bundle() {
     local bundle_path="$1"
     local info="$bundle_path/Contents/Info.plist"
     local executable="$bundle_path/Contents/MacOS/ScreenClear"
+    local icon="$bundle_path/Contents/Resources/ScreenClear.icns"
+    local menu_icon="$bundle_path/Contents/Resources/MenuBarIcon.pdf"
     local details
 
     test -d "$bundle_path"
@@ -31,10 +33,20 @@ verify_bundle() {
     test -f "$info"
     test -x "$executable"
     test ! -L "$executable"
+    test -f "$icon"
+    test ! -L "$icon"
+    test -s "$icon"
+    test -f "$menu_icon"
+    test ! -L "$menu_icon"
+    test -s "$menu_icon"
     test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info")" = \
         "local.screenclear"
     test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$info")" = \
         "14.0"
+    test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$info")" = \
+        "ScreenClear"
+    /usr/bin/file "$icon" | grep -q 'Mac OS X icon'
+    /usr/bin/file "$menu_icon" | grep -q 'PDF document'
 
     codesign --verify --deep --strict --verbose=2 "$bundle_path"
     details=$(codesign -dv --verbose=4 "$bundle_path" 2>&1)
@@ -48,6 +60,10 @@ verify_bundle "$app_path"
 test -f "$zip_path"
 test ! -L "$zip_path"
 unzip -tq "$zip_path"
+if unzip -Z1 "$zip_path" | grep -Eq '(^|/)\._|^__MACOSX/'; then
+    printf 'archive contains unexpected AppleDouble metadata\n' >&2
+    exit 1
+fi
 
 extract_root=$(mktemp -d "${TMPDIR:-/tmp}/screenclear-verify.XXXXXX")
 ditto -x -k "$zip_path" "$extract_root"
@@ -62,6 +78,11 @@ if find "$archived_app" -type l -print | grep -q .; then
 fi
 
 verify_bundle "$archived_app"
-supplied_hash=$(shasum -a 256 "$app_path/Contents/MacOS/ScreenClear" | awk '{print $1}')
-archived_hash=$(shasum -a 256 "$archived_app/Contents/MacOS/ScreenClear" | awk '{print $1}')
-test "$supplied_hash" = "$archived_hash"
+for relative_path in \
+    Contents/MacOS/ScreenClear \
+    Contents/Resources/ScreenClear.icns \
+    Contents/Resources/MenuBarIcon.pdf; do
+    supplied_hash=$(shasum -a 256 "$app_path/$relative_path" | awk '{print $1}')
+    archived_hash=$(shasum -a 256 "$archived_app/$relative_path" | awk '{print $1}')
+    test "$supplied_hash" = "$archived_hash"
+done

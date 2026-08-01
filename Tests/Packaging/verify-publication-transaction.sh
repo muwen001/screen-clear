@@ -41,10 +41,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$case_root/.build/release" "$case_root/Scripts/Packaging" "$shim_dir"
+mkdir -p "$case_root/.build/release" \
+    "$case_root/Scripts/Packaging" \
+    "$case_root/Scripts/Icons" \
+    "$shim_dir"
 cp "$project_root/make-app.sh" "$case_root/make-app.sh"
 cp "$project_root/Scripts/Packaging/install-lifecycle.sh" \
     "$case_root/Scripts/Packaging/install-lifecycle.sh"
+cp "$project_root/Scripts/Icons/generate-icons.swift" \
+    "$case_root/Scripts/Icons/generate-icons.swift"
 cp "$release_binary" "$case_root/.build/release/ScreenClear"
 chmod 755 "$case_root/make-app.sh" \
     "$case_root/Scripts/Packaging/install-lifecycle.sh" \

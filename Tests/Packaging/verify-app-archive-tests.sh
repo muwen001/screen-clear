@@ -28,7 +28,7 @@ extra_root="$test_root/extra"
 mkdir -p "$extra_root"
 ditto "$source_app" "$extra_root/ScreenClear.app"
 printf 'unexpected\n' > "$extra_root/unexpected.txt"
-ditto -c -k --sequesterRsrc "$extra_root" "$test_root/extra.zip"
+ditto -c -k --norsrc "$extra_root" "$test_root/extra.zip"
 assert_rejected "$test_root/extra.zip"
 
 mismatch_root="$test_root/mismatch"
@@ -37,8 +37,18 @@ ditto "$source_app" "$mismatch_root/ScreenClear.app"
 cp /usr/bin/true "$mismatch_root/ScreenClear.app/Contents/MacOS/ScreenClear"
 chmod 755 "$mismatch_root/ScreenClear.app/Contents/MacOS/ScreenClear"
 codesign --force --deep --sign - --timestamp=none "$mismatch_root/ScreenClear.app" >/dev/null
-ditto -c -k --sequesterRsrc --keepParent \
+ditto -c -k --norsrc --keepParent \
     "$mismatch_root/ScreenClear.app" "$test_root/mismatch.zip"
 assert_rejected "$test_root/mismatch.zip"
+
+resource_mismatch_root="$test_root/resource-mismatch"
+mkdir -p "$resource_mismatch_root"
+ditto "$source_app" "$resource_mismatch_root/ScreenClear.app"
+printf '\n' >> "$resource_mismatch_root/ScreenClear.app/Contents/Resources/MenuBarIcon.pdf"
+codesign --force --deep --sign - --timestamp=none \
+    "$resource_mismatch_root/ScreenClear.app" >/dev/null
+ditto -c -k --norsrc --keepParent \
+    "$resource_mismatch_root/ScreenClear.app" "$test_root/resource-mismatch.zip"
+assert_rejected "$test_root/resource-mismatch.zip"
 
 printf 'archive verifier rejection tests passed\n'
