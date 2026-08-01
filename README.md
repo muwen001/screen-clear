@@ -12,6 +12,14 @@ swift test
 ./make-app.sh --install
 ```
 
+打包时会通过 `Scripts/Icons/generate-icons.swift` 生成 A 款蓝紫应用图标、标准多尺寸 `ScreenClear.icns` 和自适应菜单栏模板图标。生成过程只依赖 macOS 自带 AppKit/CoreGraphics、`iconutil` 与 `sips`，不需要第三方图像工具。
+
+单独验证图标生成器：
+
+```bash
+Tests/Packaging/icon-generator-tests.sh
+```
+
 - `ScreenClear.app`
 - `dist/ScreenClear-macos-arm64.zip`
 - 使用 `--install` 时的 `/Applications/ScreenClear.app`
@@ -63,9 +71,12 @@ Sources/ScreenClear/
 ├── OverrideConfiguration.swift # override 分类、无损合并 + 生效条件
 ├── OverrideInstaller.swift    # osascript 管理员原子安装/更新/移除
 ├── LinkDescriptionPatcher.swift # 颜色修复 + 备份恢复
+├── MenuBarIcon.swift          # 菜单栏模板资源加载 + display 回退
 ├── MenuContent.swift          # 菜单栏 UI
 ├── SelfTest.swift             # 自检 + CLI 模式切换
 └── Extensions.swift           # String: Error
+Scripts/Icons/
+└── generate-icons.swift       # A 款矢量图标与标准 macOS 资源生成
 ```
 
 ## 已知限制
