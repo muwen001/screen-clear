@@ -39,6 +39,42 @@ test ! -L "$output_root/MenuBarIcon.pdf"
 
 /usr/bin/xcrun swift "$generator" "$output_root"
 
+regular_icon="$output_root/ScreenClear.iconset/icon_512x512@2x.png"
+validate_regular_icon_footprint() {
+    /usr/bin/xcrun swift - "$1" <<'SWIFT'
+import AppKit
+import Foundation
+
+guard CommandLine.arguments.count == 2,
+      let data = try? Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])),
+      let image = NSBitmapImageRep(data: data),
+      image.pixelsWide == 1024,
+      image.pixelsHigh == 1024 else {
+    fputs("cannot decode 1024px icon\n", stderr)
+    exit(1)
+}
+
+let row = image.pixelsHigh / 2
+let opaqueColumns = (0..<image.pixelsWide).filter {
+    (image.colorAt(x: $0, y: row)?.alphaComponent ?? 0) >= 0.95
+}
+guard let first = opaqueColumns.first, let last = opaqueColumns.last else {
+    fputs("regular icon footprint failure: center row is transparent\n", stderr)
+    exit(1)
+}
+let span = last - first + 1
+guard (87...89).contains(first),
+      (935...937).contains(last),
+      (847...851).contains(span),
+      abs((first + last) - 1023) <= 1 else {
+    fputs("regular icon footprint failure: expected centered 83% span, got first=\(first) last=\(last) span=\(span)\n", stderr)
+    exit(1)
+}
+SWIFT
+}
+
+validate_regular_icon_footprint "$regular_icon"
+
 small_icon="$output_root/ScreenClear.iconset/icon_16x16.png"
 validate_small_icon() {
     /usr/bin/xcrun swift - "$1" <<'SWIFT'

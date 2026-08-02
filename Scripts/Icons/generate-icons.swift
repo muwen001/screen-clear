@@ -65,6 +65,21 @@ func sparklePath(center: CGPoint, outer: CGFloat, inner: CGFloat) -> CGPath {
     return path
 }
 
+let appIconArtworkScale: CGFloat = 0.90
+
+func drawCenteredAppArtwork(
+    in context: CGContext,
+    canvas: CGFloat,
+    draw: () -> Void
+) {
+    context.saveGState()
+    context.translateBy(x: canvas / 2, y: canvas / 2)
+    context.scaleBy(x: appIconArtworkScale, y: appIconArtworkScale)
+    context.translateBy(x: -canvas / 2, y: -canvas / 2)
+    draw()
+    context.restoreGState()
+}
+
 func drawCompactAppIcon(in context: CGContext) {
     let background = CGPath(
         roundedRect: CGRect(x: 0.625, y: 0.625, width: 14.75, height: 14.75),
@@ -204,7 +219,9 @@ func pngData(pixels: Int) throws -> Data {
         drawCompactAppIcon(in: graphics.cgContext)
     } else {
         graphics.cgContext.scaleBy(x: CGFloat(pixels) / 128, y: CGFloat(pixels) / 128)
-        drawAppIcon(in: graphics.cgContext, pixels: pixels)
+        drawCenteredAppArtwork(in: graphics.cgContext, canvas: 128) {
+            drawAppIcon(in: graphics.cgContext, pixels: pixels)
+        }
     }
     graphics.flushGraphics()
     NSGraphicsContext.restoreGraphicsState()
