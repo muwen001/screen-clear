@@ -80,7 +80,7 @@ func drawCenteredAppArtwork(
     context.restoreGState()
 }
 
-func drawCompactAppIcon(in context: CGContext) {
+func drawCompactAppIconBackground(in context: CGContext) {
     let background = CGPath(
         roundedRect: CGRect(x: 0.625, y: 0.625, width: 14.75, height: 14.75),
         cornerWidth: 3.625,
@@ -102,9 +102,11 @@ func drawCompactAppIcon(in context: CGContext) {
         options: []
     )
     context.restoreGState()
+}
 
+func drawCompactAppIconForeground(in context: CGContext) {
     let screen = CGPath(
-        roundedRect: CGRect(x: 2, y: 5, width: 9, height: 7),
+        roundedRect: CGRect(x: 3, y: 5, width: 8, height: 7),
         cornerWidth: 1,
         cornerHeight: 1,
         transform: nil
@@ -114,7 +116,7 @@ func drawCompactAppIcon(in context: CGContext) {
     context.fillPath()
 
     let screenInterior = CGPath(
-        roundedRect: CGRect(x: 3, y: 6, width: 7, height: 5),
+        roundedRect: CGRect(x: 4, y: 6, width: 6, height: 5),
         cornerWidth: 0.5,
         cornerHeight: 0.5,
         transform: nil
@@ -126,17 +128,17 @@ func drawCompactAppIcon(in context: CGContext) {
     context.setFillColor(color(1, 1, 1))
     context.fill(CGRect(x: 6, y: 3, width: 2, height: 3))
     context.addPath(CGPath(
-        roundedRect: CGRect(x: 4, y: 2, width: 6, height: 2),
+        roundedRect: CGRect(x: 5, y: 2, width: 5, height: 2),
         cornerWidth: 1,
         cornerHeight: 1,
         transform: nil
     ))
     context.fillPath()
 
-    context.addPath(sparklePath(center: CGPoint(x: 12.7, y: 12.7), outer: 2.35, inner: 1))
+    context.addPath(sparklePath(center: CGPoint(x: 12.5, y: 12.5), outer: 2.15, inner: 0.9))
     context.setFillColor(color(1, 1, 1))
     context.fillPath()
-    context.addPath(sparklePath(center: CGPoint(x: 12.7, y: 12.7), outer: 1.55, inner: 0.65))
+    context.addPath(sparklePath(center: CGPoint(x: 12.5, y: 12.5), outer: 1.5, inner: 0.65))
     context.setFillColor(color(0.73, 0.96, 1))
     context.fillPath()
 }
@@ -216,7 +218,10 @@ func pngData(pixels: Int) throws -> Data {
     NSGraphicsContext.current = graphics
     graphics.cgContext.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
     if pixels == 16 {
-        drawCompactAppIcon(in: graphics.cgContext)
+        drawCenteredAppArtwork(in: graphics.cgContext, canvas: 16) {
+            drawCompactAppIconBackground(in: graphics.cgContext)
+        }
+        drawCompactAppIconForeground(in: graphics.cgContext)
     } else {
         graphics.cgContext.scaleBy(x: CGFloat(pixels) / 128, y: CGFloat(pixels) / 128)
         drawCenteredAppArtwork(in: graphics.cgContext, canvas: 128) {

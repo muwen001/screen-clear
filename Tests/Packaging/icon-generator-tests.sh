@@ -102,6 +102,10 @@ func countPixels(x: ClosedRange<Int>, y: ClosedRange<Int>, matching: (NSColor) -
     return count
 }
 
+func alphaAt(x: Int, y: Int) -> CGFloat {
+    image.colorAt(x: x, y: y)?.alphaComponent ?? 0
+}
+
 func fail(_ message: String) -> Never {
     fputs("16px icon visibility failure: \(message)\n", stderr)
     exit(1)
@@ -119,22 +123,29 @@ let cyan: (NSColor) -> Bool = {
         $0.blueComponent - $0.redComponent >= 0.15
 }
 
+guard alphaAt(x: 1, y: 8) < 0.90,
+      alphaAt(x: 2, y: 8) >= 0.95,
+      alphaAt(x: 13, y: 8) >= 0.95,
+      alphaAt(x: 14, y: 8) < 0.90 else {
+    fail("compact footprint")
+}
+
 // These hand-picked decoded-PNG regions use y=0 at the image top and cover the visible monitor, stand, and sparkle.
-guard countPixels(x: 2...3, y: 6...10, matching: white) >= 5,
-      countPixels(x: 10...11, y: 6...9, matching: white) >= 4 else {
+guard countPixels(x: 3...3, y: 6...10, matching: white) >= 3,
+      countPixels(x: 10...10, y: 6...9, matching: white) >= 3 else {
     fail("display side boundary")
 }
-guard countPixels(x: 4...9, y: 4...5, matching: white) >= 5 else {
+guard countPixels(x: 4...9, y: 4...5, matching: white) >= 4 else {
     fail("display top boundary")
 }
-guard countPixels(x: 4...9, y: 10...10, matching: white) >= 5 else {
+guard countPixels(x: 4...9, y: 10...10, matching: white) >= 4 else {
     fail("display bottom boundary")
 }
 guard countPixels(x: 6...7, y: 11...12, matching: white) >= 2,
-      countPixels(x: 4...9, y: 12...13, matching: white) >= 4 else {
+      countPixels(x: 5...9, y: 12...13, matching: white) >= 3 else {
     fail("display stand")
 }
-guard countPixels(x: 11...15, y: 1...5, matching: cyan) >= 3 else {
+guard countPixels(x: 11...14, y: 2...5, matching: cyan) >= 3 else {
     fail("upper-right sparkle")
 }
 SWIFT
@@ -190,7 +201,7 @@ for y in 0..<image.pixelsHigh {
             alpha: pixel.alphaComponent
         )
         switch mutation {
-        case "sparkle" where (11...15).contains(x) && (1...5).contains(y) && isCyan(pixel):
+        case "sparkle" where (11...14).contains(x) && (2...5).contains(y) && isCyan(pixel):
             replacement = NSColor(deviceRed: 1, green: 1, blue: 1, alpha: 1)
             changes += 1
         case "top-boundary" where (4...9).contains(x) && (4...5).contains(y):
@@ -217,6 +228,8 @@ do {
 SWIFT
 }
 
+validate_small_icon "$small_icon"
+
 sparkle_fixture="$test_root/mutated-sparkle-16px.png"
 mutate_small_icon "$small_icon" "$sparkle_fixture" sparkle
 set +e
@@ -234,8 +247,6 @@ top_boundary_fixture_status=$?
 set -e
 test "$top_boundary_fixture_status" -ne 0
 grep -qx '16px icon visibility failure: display top boundary' "$test_root/mutated-top-boundary.out"
-
-validate_small_icon "$small_icon"
 
 while IFS=: read -r name width height; do
     image="$output_root/ScreenClear.iconset/$name"

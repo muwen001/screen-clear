@@ -4,7 +4,7 @@
 
 **Goal:** Reduce ScreenClear’s complete application-icon artwork to a centered 90% scale so its visible Launchpad footprint is about 83% of the canvas, close to local ZCode, while preserving small-size legibility and current package/install guarantees.
 
-**Architecture:** Keep the 128-unit AppKit/CoreGraphics master drawing as the only geometry source. A single center-preserving transform wraps the existing regular master and the dedicated 16 px compact renderer, so the background, monitor, stand, and sparkle move together. The generator test decodes real PNG output; it does not inspect source coordinates.
+**Architecture:** Keep the 128-unit AppKit/CoreGraphics master drawing as the only geometry source for regular sizes. A center-preserving transform wraps the regular master; the 16 px compact path applies that transform to its colored background and uses its nearest-pixel foreground equivalent, so the monitor, stand, and sparkle remain readable. The generator test decodes real PNG output; it does not inspect source coordinates.
 
 **Tech Stack:** Swift 6, AppKit, CoreGraphics, Foundation, Bash, xcrun swift, iconutil, sips, codesign, ditto.
 
@@ -12,7 +12,7 @@
 
 - Scale complete app-icon artwork by exactly 0.90 about (64, 64) for the 128-unit master and (8, 8) for the 16 px compact path.
 - The regular background moves from x=5…123 (92.2%) to about x=10.9…117.1 (83.0%). Do not alter colors, paths, corner ratios, monitor geometry, or sparkle geometry separately.
-- Preserve the dedicated 16 px renderer; its background, monitor, stand, and cyan sparkle receive the same transform and remain visible in decoded output.
+- Preserve the dedicated 16 px renderer. Its colored background receives the exact 0.90 transform; monitor, stand, and cyan sparkle use the nearest-pixel equivalent of that target geometry and remain visible in decoded output.
 - Do not alter MenuBarIcon.pdf, MenuBarIcon.swift, menu-bar template behavior, or the display fallback.
 - Preserve CFBundleIdentifier=local.screenclear, ScreenClear, version 1.0 (1), LSUIElement=true, NSHighResolutionCapable=true, accessory activation, and ad-hoc signing.
 - Do not modify HiDPI overrides, current display modes, LinkDescription, LaunchAgents, Finder/Launch Services caches, or display configuration. Installation remains exactly /Applications/ScreenClear.app.
@@ -20,7 +20,7 @@
 
 ## File Structure
 
-- Scripts/Icons/generate-icons.swift: one centered-scale helper and both app-icon branches; the menu-bar PDF drawing remains unchanged.
+- Scripts/Icons/generate-icons.swift: one centered-scale helper, a regular app-icon branch, and split compact background/foreground drawing; the menu-bar PDF drawing remains unchanged.
 - Tests/Packaging/icon-generator-tests.sh: decoded 1024 px footprint test plus decoded 16 px footprint/component/mutation checks.
 - make-app.sh and existing package tests: no source edit planned; used as integration gates after regenerated artwork.
 
@@ -152,7 +152,7 @@ git commit -m "fix: align regular ScreenClear icon footprint"
 
 **Interfaces:**
 
-- Consumes: drawCenteredAppArtwork(in:canvas:draw:) from Task 1 and drawCompactAppIcon(in:).
+- Consumes: drawCenteredAppArtwork(in:canvas:draw:) from Task 1 and split compact background/foreground drawing.
 - Produces: an approximately 83% compact colored footprint plus executable monitor, stand, and cyan-sparkle regression checks.
 
 - [ ] **Step 1: Write the failing compact-footprint regression**
@@ -193,15 +193,55 @@ Tests/Packaging/icon-generator-tests.sh
 
 Expected: non-zero exit and 16px icon visibility failure: compact footprint.
 
-- [ ] **Step 3: Apply the existing transform to the compact branch**
+- [ ] **Step 3: Apply the existing transform to the compact background and draw a pixel-aligned foreground**
 
-Make pngData use the same helper for both branches:
+Split the former compact renderer into a background function that retains its existing gradient/corner geometry and a foreground function with these nearest-pixel target primitives:
 
 ~~~swift
+func drawCompactAppIconForeground(in context: CGContext) {
+    let screen = CGPath(
+        roundedRect: CGRect(x: 3, y: 5, width: 8, height: 7),
+        cornerWidth: 1,
+        cornerHeight: 1,
+        transform: nil
+    )
+    context.addPath(screen)
+    context.setFillColor(color(1, 1, 1))
+    context.fillPath()
+
+    let screenInterior = CGPath(
+        roundedRect: CGRect(x: 4, y: 6, width: 6, height: 5),
+        cornerWidth: 0.5,
+        cornerHeight: 0.5,
+        transform: nil
+    )
+    context.addPath(screenInterior)
+    context.setFillColor(color(0.35, 0.47, 0.93))
+    context.fillPath()
+
+    context.setFillColor(color(1, 1, 1))
+    context.fill(CGRect(x: 6, y: 3, width: 2, height: 3))
+    context.addPath(CGPath(
+        roundedRect: CGRect(x: 5, y: 2, width: 5, height: 2),
+        cornerWidth: 1,
+        cornerHeight: 1,
+        transform: nil
+    ))
+    context.fillPath()
+
+    context.addPath(sparklePath(center: CGPoint(x: 12.5, y: 12.5), outer: 2.15, inner: 0.9))
+    context.setFillColor(color(1, 1, 1))
+    context.fillPath()
+    context.addPath(sparklePath(center: CGPoint(x: 12.5, y: 12.5), outer: 1.5, inner: 0.65))
+    context.setFillColor(color(0.73, 0.96, 1))
+    context.fillPath()
+}
+
 if pixels == 16 {
     drawCenteredAppArtwork(in: graphics.cgContext, canvas: 16) {
-        drawCompactAppIcon(in: graphics.cgContext)
+        drawCompactAppIconBackground(in: graphics.cgContext)
     }
+    drawCompactAppIconForeground(in: graphics.cgContext)
 } else {
     graphics.cgContext.scaleBy(x: CGFloat(pixels) / 128, y: CGFloat(pixels) / 128)
     drawCenteredAppArtwork(in: graphics.cgContext, canvas: 128) {
@@ -210,7 +250,7 @@ if pixels == 16 {
 }
 ~~~
 
-No compact colors or drawing primitives change.
+Do not change the compact colors; this raster alignment is required because a literal fractional transform blends the monitor's white border below the visibility threshold.
 
 - [ ] **Step 4: Recalibrate only the decoded component probes and their fixtures**
 
