@@ -334,6 +334,11 @@ Expected: all commands exit 0; Swift reports 20 tests and 0 failures; generator 
 
 ~~~bash
 state_root=$(mktemp -d /tmp/screenclear-launchpad-scale-state.XXXXXX)
+state_root=$(cd "$state_root" && pwd -P)
+case "$state_root" in
+  /private/tmp/screenclear-launchpad-scale-state.*|/tmp/screenclear-launchpad-scale-state.*) ;;
+  *) printf 'unexpected state path: %s\n' "$state_root" >&2; exit 1 ;;
+esac
 override_path=/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-5e3/DisplayProductID-2490
 launch_agent_path=/Users/share/Library/LaunchAgents/local.screenclear.plist
 byhost_path=/Users/share/Library/Preferences/ByHost/com.apple.windowserver.displays.4C32E97C-38FB-5A2C-870C-6EA57833EA6B.plist
@@ -342,9 +347,9 @@ system_display_path=/Library/Preferences/com.apple.windowserver.displays.plist
 for path in "$override_path" "$launch_agent_path" "$byhost_path" "$system_display_path"; do
   test -f "$path"
   test ! -L "$path"
-  stat -f '%N|%HT|%i|%z|%m' "$path"
-  shasum -a 256 "$path"
-  plutil -p "$path"
+  /usr/bin/stat -f '%N|%HT|%i|%z|%m' "$path"
+  /usr/bin/shasum -a 256 "$path"
+  /usr/bin/plutil -p "$path"
 done > "$state_root/protected.before"
 ~~~
 
@@ -371,13 +376,13 @@ Expected: all commands exit 0 and pgrep reports a process from the exact install
 for path in "$override_path" "$launch_agent_path" "$byhost_path" "$system_display_path"; do
   test -f "$path"
   test ! -L "$path"
-  stat -f '%N|%HT|%i|%z|%m' "$path"
-  shasum -a 256 "$path"
-  plutil -p "$path"
+  /usr/bin/stat -f '%N|%HT|%i|%z|%m' "$path"
+  /usr/bin/shasum -a 256 "$path"
+  /usr/bin/plutil -p "$path"
 done > "$state_root/protected.after"
-cmp -s "$state_root/displays.before" "$state_root/displays.after"
-cmp -s "$state_root/protected.before" "$state_root/protected.after"
-test -z "$(find /Applications -maxdepth 1 -name '.ScreenClear.backup.*' -print)"
+/usr/bin/cmp -s "$state_root/displays.before" "$state_root/displays.after"
+/usr/bin/cmp -s "$state_root/protected.before" "$state_root/protected.after"
+test -z "$(/usr/bin/find /Applications -maxdepth 1 -name '.ScreenClear.backup.*' -print)"
 ~~~
 
 Expected: both comparisons exit 0 and no backup bundle remains. On any mismatch, stop and inspect its exact diff without modifying display/cache state.
